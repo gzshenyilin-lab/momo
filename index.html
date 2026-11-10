@@ -266,289 +266,6 @@
 
                         <!-- 🤖 安卓手机专属质检选项 -->
                         <div v-if="newPhone.platform === 'android'" class="p-3 bg-green-50/40 rounded-lg space-y-3 border border-green-100">
-                            <已在**“确认入库并同步云端”按钮的正上方**为你新增了**“✨ 智能文本一键解析填入”**功能区，并且**100%完整保留**了之前所有的功能（登录注册、扫码入库/出库、苹果型号自动纠错与补齐、全套质检项、选填备注、四大分类详细库存、批量出库及多端实时同步）。
-
-### 💡 智能解析输入框支持哪些识别？
-无论你当前选在哪个标签，只要在底部输入框里随手打一句话（或者直接粘贴微信/群里的收机文案），它会在你**打字的同时实时自动拆解并填入上方对应的框里**：
-* **苹果手机示例**：输入 `iPhone 8 32g 美版 电池88 完美 进800 售1100 356789012345678 电池维修 国产屏 送壳`
-  * 自动识别平台为**苹果**、型号为 **`iPhone 8`**（哪怕写错成 `iphona 8` 也会自动修正）
-  * 自动选好内存 **`32G`**、版本 **`美版`**、电池效率 **`88`**、外观 **`完美无瑕疵`**
-  * 自动勾选电池弹窗 **`维修`**、屏幕弹窗 **`有 (国产屏)`**
-  * 自动填入 15 位串号、进货价 `800`、零售价 `1100`，剩下未匹配的词（如 `送壳`）自动放进**备注**！
-* **安卓手机示例**：输入 `小米14 16+512g 轻微划痕 进2600 售3100` $\rightarrow$ 自动切到**安卓**并填好 `16G RAM` + `512G ROM`、外观与价格。
-* **电脑/配件/报废机**：输入 `联想小新Pro14 i5-13500H 16G+512G 轻微划痕 老化 进2800 售3400` 或 `高清钢化膜 50个 进2 售15`，也会自动切换品类并填入对应字段。
-
-此功能无需改动 Supabase 数据库，请直接将以下完整代码复制并覆盖到你的 `index.html` 中：
-
-```html
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>手机销售记账与串号管理系统 (终极全功能云端版)</title>
-    <script src="[https://cdn.tailwindcss.com](https://cdn.tailwindcss.com)"></script>
-    <script src="[https://unpkg.com/vue@3/dist/vue.global.js](https://unpkg.com/vue@3/dist/vue.global.js)"></script>
-    <script src="[https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2](https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2)"></script>
-    <script src="[https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js](https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js)"></script>
-</head>
-<body class="bg-gray-100 text-gray-800">
-    <div id="app" class="max-w-5xl mx-auto p-4 sm:p-6 space-y-6">
-
-        <!-- ================= 1. 登录/注册界面 (未登录时显示) ================= -->
-        <div v-if="!isLoggedIn" class="min-h-[80vh] flex items-center justify-center">
-            <div class="bg-white p-8 rounded-2xl shadow-md max-w-md w-full space-y-6 border border-gray-100">
-                <div class="text-center space-y-2">
-                    <div class="text-4xl">📱</div>
-                    <h1 class="text-xl font-bold text-blue-600">手机销售记账与串号管理系统</h1>
-                    <p class="text-xs text-gray-500">多端云端实时同步版 | 🕒 {{ currentTime }}</p>
-                </div>
-
-                <div class="flex bg-gray-100 p-1 rounded-lg text-xs">
-                    <button @click="authMode = 'login'" :class="authMode === 'login' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-gray-600'" class="flex-1 py-2 rounded transition">账号登录</button>
-                    <button @click="authMode = 'register'" :class="authMode === 'register' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-gray-600'" class="flex-1 py-2 rounded transition">内部注册</button>
-                </div>
-
-                <!-- 登录表单 -->
-                <div v-if="authMode === 'login'" class="space-y-4">
-                    <div>
-                        <label class="text-xs text-gray-500 block mb-1">系统用户名</label>
-                        <input v-model="loginForm.username" @keyup.enter="handleLogin" type="text" placeholder="输入用户名（如 yilin）" class="border p-2.5 rounded-lg w-full text-sm">
-                    </div>
-                    <div>
-                        <label class="text-xs text-gray-500 block mb-1">登录密码</label>
-                        <input v-model="loginForm.password" @keyup.enter="handleLogin" type="password" placeholder="输入密码" class="border p-2.5 rounded-lg w-full text-sm">
-                    </div>
-                    <button @click="handleLogin" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-medium transition text-sm">立即登录系统</button>
-                </div>
-
-                <!-- 注册表单 -->
-                <div v-if="authMode === 'register'" class="space-y-4">
-                    <div>
-                        <label class="text-xs text-gray-500 block mb-1">新用户名</label>
-                        <input v-model="registerForm.username" type="text" placeholder="设置您的系统账号名称" class="border p-2.5 rounded-lg w-full text-sm">
-                    </div>
-                    <div>
-                        <label class="text-xs text-gray-500 block mb-1">设置密码</label>
-                        <input v-model="registerForm.password" type="password" placeholder="设置登录密码" class="border p-2.5 rounded-lg w-full text-sm">
-                    </div>
-                    <div>
-                        <label class="text-xs text-gray-500 block mb-1">内部授权注册码 <span class="text-red-500">*</span></label>
-                        <input v-model="registerForm.inviteCode" type="password" placeholder="输入内部授权码才可注册" class="border p-2.5 rounded-lg w-full text-sm">
-                    </div>
-                    <button @click="handleRegister" class="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-medium transition text-sm">确认注册并登录</button>
-                </div>
-            </div>
-        </div>
-
-        <!-- ================= 2. 主系统界面 (登录成功后显示) ================= -->
-        <div v-else class="space-y-6">
-            <!-- 顶部标题、实时时间、同步状态与操作员信息 -->
-            <header class="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-xl shadow-sm gap-3">
-                <div class="flex items-center gap-2">
-                    📱 <h1 class="text-xl font-bold text-blue-600">手机销售记账助手</h1>
-                    <span class="bg-green-50 text-green-600 border border-green-200 text-[10px] px-2 py-0.5 rounded-full flex items-center gap-1">
-                        <span class="w-1.5 h-1.5 bg-green-500 rounded-full animate-ping"></span> 云端实时同步中
-                    </span>
-                </div>
-                <div class="flex items-center gap-2 sm:gap-3 flex-wrap justify-end">
-                    <span class="text-xs bg-gray-100 text-gray-700 px-2.5 py-1 rounded-lg font-mono">🕒 {{ currentTime }}</span>
-                    <button @click="fetchCloudData(true)" class="text-xs bg-blue-50 hover:bg-blue-100 text-blue-600 px-2.5 py-1 rounded-lg transition" title="手动强制从云端拉取最新数据">🔄 刷新同步</button>
-                    <div class="flex items-center gap-1 bg-gray-50 px-2.5 py-1 rounded-lg border">
-                        <span class="text-xs text-gray-500">当前账号:</span>
-                        <span class="text-blue-600 font-bold text-sm">{{ currentUser }}</span>
-                        <span v-if="currentUser === 'yilin'" class="bg-red-100 text-red-600 text-[10px] px-1.5 py-0.5 rounded font-bold ml-1">👑 管理员</span>
-                        <span v-else class="bg-gray-200 text-gray-600 text-[10px] px-1.5 py-0.5 rounded ml-1">普通用户</span>
-                    </div>
-                    <button @click="handleLogout" class="text-xs text-red-500 hover:bg-red-50 border border-red-200 px-2.5 py-1 rounded-lg transition">退出</button>
-                </div>
-            </header>
-
-            <!-- 全局摄像头扫码弹窗层 (同时支持【扫码入库】与【扫码出库】) -->
-            <div v-if="isScanning" class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
-                <div class="bg-gray-900 p-5 rounded-2xl max-w-sm w-full text-center space-y-4 border border-gray-700 shadow-2xl">
-                    <div class="text-white text-sm font-bold flex items-center justify-center gap-2">
-                        <span class="px-2 py-0.5 rounded text-xs" :class="scanMode === 'outbound' ? 'bg-green-600' : 'bg-blue-600'">
-                            {{ scanMode === 'outbound' ? '⚡ 扫码出库模式' : '➕ 扫码入库模式' }}
-                        </span>
-                        <span>请将条形码/IMEI对准取景框</span>
-                    </div>
-                    <div class="relative mx-auto overflow-hidden rounded-xl bg-black border-2" :class="scanMode === 'outbound' ? 'border-green-500' : 'border-blue-500'">
-                        <video id="scanner-video" class="w-full h-56 object-cover"></video>
-                    </div>
-                    <p class="text-xs text-gray-400">
-                        {{ scanMode === 'outbound' ? '识别成功后将自动匹配在库商品并跳转开单' : '识别成功后将自动填入15位串号输入框' }}
-                    </p>
-                    <button @click="stopScan" class="w-full bg-red-600 hover:bg-red-700 text-white py-2 rounded-lg text-sm font-medium transition">关闭摄像头</button>
-                </div>
-            </div>
-
-            <!-- 选项卡切换 -->
-            <div class="flex space-x-1 sm:space-x-2 overflow-x-auto pb-1">
-                <button @click="currentTab = 'inventory'" :class="currentTab === 'inventory' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📦 库存与串号</button>
-                <button @click="currentTab = 'detailInventory'" :class="currentTab === 'detailInventory' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📂 详细库存 ({{ totalInStockCount }})</button>
-                <button @click="currentTab = 'sales'" :class="currentTab === 'sales' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">💰 销售开单 / 扫码出库</button>
-                <button @click="currentTab = 'stats'" :class="currentTab === 'stats' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📊 利润统计</button>
-                <button @click="currentTab = 'settings'" :class="currentTab === 'settings' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">
-                    ⚙️ 系统设置 <span v-if="overdueCount > 0" class="ml-1 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{{ overdueCount }}</span>
-                </button>
-            </div>
-
-            <!-- ================= TAB 1: 库存与串号管理 ================= -->
-            <div v-if="currentTab === 'inventory'" class="space-y-4">
-                <!-- 入库表单区域 -->
-                <div class="bg-white p-4 rounded-xl shadow-sm space-y-4">
-                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 gap-2">
-                        <h2 class="font-bold">➕ 添加入库 / 进货登记</h2>
-                        <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg text-xs flex-wrap gap-1">
-                            <button @click="entryType = 'phone'" :class="entryType === 'phone' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">📱 手机录入</button>
-                            <button @click="entryType = 'computer'" :class="entryType === 'computer' ? 'bg-white text-purple-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">💻 电脑录入</button>
-                            <button @click="entryType = 'accessory'" :class="entryType === 'accessory' ? 'bg-white text-green-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">🔌 配件登记</button>
-                            <button @click="entryType = 'scrap'" :class="entryType === 'scrap' ? 'bg-white text-red-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">♻️ 报废机回收</button>
-                        </div>
-                    </div>
-
-                    <!-- A. 手机录入表单 (全质检项完整版 + 苹果自动修正前缀 + 选填备注) -->
-                    <div v-if="entryType === 'phone'" class="space-y-3">
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">
-                                    手机型号 <span class="text-red-500">*</span>
-                                    <span v-if="newPhone.platform === 'apple'" class="text-[11px] text-blue-600 ml-1">(苹果免填iPhone前缀，拼错自动修正)</span>
-                                </label>
-                                <input v-model="newPhone.model" type="text" :placeholder="newPhone.platform === 'apple' ? '例：15 Pro Max（入库自动补齐或修正为 iPhone）' : '例：小米14 / 华为Mate60'" class="border p-2 rounded-lg w-full text-sm">
-                            </div>
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">系统平台</label>
-                                <select v-model="newPhone.platform" class="border p-2 rounded-lg bg-white w-full text-sm">
-                                    <option value="apple">🍏 苹果手机 (iPhone)</option>
-                                    <option value="android">🤖 安卓手机</option>
-                                </select>
-                            </div>
-                            
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">15位串号 IMEI (唯一) <span class="text-red-500">*</span></label>
-                                <div class="flex gap-2">
-                                    <input v-model="newPhone.imei" type="text" placeholder="输入或扫描串号" class="border p-2 rounded-lg flex-1 text-sm font-mono">
-                                    <button @click="startScan('inboundPhone')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1 shrink-0 transition">
-                                        📷 扫码填入
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">收购人 (可自由修改) <span class="text-red-500">*</span></label>
-                                <input v-model="newPhone.buyer" type="text" placeholder="输入收购人姓名" class="border p-2 rounded-lg w-full text-sm">
-                            </div>
-                            
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">入库日期</label>
-                                <input v-model="newPhone.indate" type="date" class="border p-2 rounded-lg bg-white w-full text-sm">
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">进货成本价 (元) <span class="text-red-500">*</span></label>
-                                    <input v-model.number="newPhone.cost" type="number" placeholder="进货价" class="border p-2 rounded-lg w-full text-sm">
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">预设零售价 (元)</label>
-                                    <input v-model.number="newPhone.price" type="number" placeholder="零售价" class="border p-2 rounded-lg w-full text-sm">
-                                </div>
-                            </div>
-
-                            <!-- 手机选填备注 -->
-                            <div class="sm:col-span-2">
-                                <label class="text-xs text-gray-500 block mb-1">手机备注说明 (选填)</label>
-                                <input v-model="newPhone.remark" type="text" placeholder="例：带原装盒、送保护壳、Face ID偶发失灵、客户寄售等..." class="border p-2 rounded-lg w-full text-sm bg-yellow-50/30">
-                            </div>
-                        </div>
-
-                        <!-- 🍎 苹果手机专属质检选项 -->
-                        <div v-if="newPhone.platform === 'apple'" class="p-3 bg-blue-50/40 rounded-lg space-y-3 border border-blue-100">
-                            <div class="text-xs font-bold text-blue-800">🍏 苹果手机专业验货质检配置</div>
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">机身外观成色</label>
-                                    <select v-model="newPhone.appearance" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                        <option value="完美无瑕疵">完美无瑕疵</option>
-                                        <option value="小划痕/掉漆">小划痕/掉漆</option>
-                                        <option value="明显磕碰">明显磕碰</option>
-                                        <option value="机身弯曲">机身弯曲</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">屏幕成色状态</label>
-                                    <select v-model="newPhone.screencondition" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                        <option value="屏幕无划痕">屏幕无划痕</option>
-                                        <option value="轻微划痕">轻微划痕</option>
-                                        <option value="严重划痕">严重划痕</option>
-                                        <option value="有漏液或者横线">有漏液或者横线</option>
-                                        <option value="无法点亮">无法点亮</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">机身内存 (ROM)</label>
-                                    <select v-model="newPhone.rom" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                        <option v-for="item in ['32G', '64G', '128G', '256G', '512G', '1T']" :value="item">{{ item }}</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <!-- 苹果版本与屏幕弹窗联动 -->
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-blue-100">
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">版本/地区归属</label>
-                                    <select v-model="newPhone.region" class="border p-2 rounded-lg w-full bg-white text-sm font-bold text-blue-600">
-                                        <option v-for="item in ['国行', '美版', '泰版', '欧版', '日版', '韩版', '亚太版', '其他版本']" :value="item">{{ item }}</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">屏幕是否有弹窗？</label>
-                                    <select v-model="newPhone.screenpopuphas" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                        <option value="无">无弹窗 (跳过)</option>
-                                        <option value="有">有弹窗</option>
-                                    </select>
-                                </div>
-                                <div v-if="newPhone.screenpopuphas === '有'">
-                                    <label class="text-xs text-gray-500 block mb-1">屏幕弹窗类型</label>
-                                    <select v-model="newPhone.screenpopuptype" class="border p-2 rounded-lg w-full bg-white text-sm text-blue-600 font-medium">
-                                        <option value="国产屏">国产屏</option>
-                                        <option value="正品屏幕">正品屏幕</option>
-                                        <option value="弹窗国屏">弹窗国屏</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <!-- 电池效率与电池弹窗联动 (包含 维修 和 正品) -->
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-blue-100">
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">电池效率 (%)</label>
-                                    <input v-model.number="newPhone.batteryhealth" type="number" placeholder="例：88" class="border p-2 rounded-lg w-full text-sm bg-white">
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">电池是否有弹窗？</label>
-                                    <select v-model="newPhone.batterypopuphas" @change="onBatteryPopupChange" class="border p-2 rounded-lg w-full bg-white text-sm font-medium">
-                                        <option value="无">无弹窗 (正常)</option>
-                                        <option value="维修">维修</option>
-                                        <option value="正品">正品</option>
-                                        <option value="有">有弹窗 (其他细分)</option>
-                                    </select>
-                                </div>
-                                <div v-if="newPhone.batterypopuphas !== '无'">
-                                    <label class="text-xs text-gray-500 block mb-1">电池弹窗状态备注</label>
-                                    <select v-model="newPhone.batterypopuptype" class="border p-2 rounded-lg w-full bg-white text-sm text-red-600 font-medium">
-                                        <option value="维修">维修</option>
-                                        <option value="正品">正品</option>
-                                        <option value="维护电池">维护电池</option>
-                                        <option value="未知电池">未知电池</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 🤖 安卓手机专属质检选项 -->
-                        <div v-if="newPhone.platform === 'android'" class="p-3 bg-green-50/40 rounded-lg space-y-3 border border-green-100">
                             <div class="text-xs font-bold text-green-800">🤖 安卓手机专业验货质检配置</div>
                             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                 <div>
@@ -753,7 +470,7 @@
                         </div>
                     </div>
 
-                    <!-- ================= ✨ 新增：确认入库按钮上方的“智能文本一键解析填入”输入框 ================= -->
+                    <!-- ================= ✨ 确认入库按钮上方的“智能文本一键解析填入”输入框 ================= -->
                     <div class="p-3.5 bg-indigo-50/70 rounded-xl border border-indigo-200 space-y-2">
                         <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-1">
                             <label class="text-xs font-bold text-indigo-800 flex items-center gap-1">
@@ -792,7 +509,6 @@
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                         <h2 class="font-bold">📋 库存与销售明细流水 (按入库月份归类)</h2>
                         <div class="flex flex-wrap items-center gap-2">
-                            <!-- 一键扫码出库按钮 -->
                             <button @click="startScan('outbound')" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1 shadow-sm transition">
                                 📷 扫码出库
                             </button>
@@ -849,12 +565,10 @@
                                                     {{ getCategoryName(item.category) }}
                                                 </span>
                                                 {{ item.model }}
-                                                <!-- 超期预警标志 -->
                                                 <span v-if="item.status === 'in' && getDays(item.indate) >= warningDays" class="bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse">
                                                     ⚠️ 超期{{ getDays(item.indate) }}天
                                                 </span>
                                             </div>
-                                            <!-- 完整质检信息展示 -->
                                             <div class="text-xs text-gray-500 space-y-1 mt-1">
                                                 <div>
                                                     <span v-if="item.category === 'phone' && item.platform === 'apple'">
@@ -878,7 +592,6 @@
                                                         报废/拆件机回收
                                                     </span>
                                                 </div>
-                                                <!-- 统一备注高亮显示 -->
                                                 <div v-if="item.remark" class="text-[11px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded inline-block">
                                                     📝 备注：{{ item.remark }}
                                                 </div>
@@ -922,7 +635,7 @@
                         </div>
                     </div>
 
-                    <!-- 底部悬浮/固定批量出库栏 -->
+                    <!-- 底部批量出库栏 -->
                     <div class="mt-4 flex flex-col sm:flex-row justify-between items-center bg-blue-50 p-3.5 rounded-xl border border-blue-200 gap-3">
                         <div class="text-sm text-blue-800">
                             已勾选 <strong class="text-blue-600 text-base">{{ selectedCount }}</strong> 项在库商品（支持手机、电脑、配件、报废机混合一键出库并分别改价）
@@ -1015,7 +728,6 @@
                                                 报废/拆件机
                                             </span>
                                         </div>
-                                        <!-- 详细库存内同样高亮显示备注 -->
                                         <div v-if="item.remark" class="text-[11px] bg-amber-50 text-amber-800 border border-amber-200 px-2 py-0.5 rounded inline-block">
                                             📝 备注：{{ item.remark }}
                                         </div>
@@ -1075,7 +787,6 @@
                             </div>
                         </div>
 
-                        <!-- 如果是配件或报废机，支持选择售出数量 -->
                         <div v-if="selectedItem.category === 'accessory' || selectedItem.category === 'scrap'">
                             <label class="text-xs text-gray-500 block mb-1">本次售出数量 (最大可售: {{ selectedItem.quantity }}) <span class="text-red-500">*</span></label>
                             <input v-model.number="saleForm.salequantity" type="number" min="1" :max="selectedItem.quantity" class="border p-2 rounded-lg w-full text-sm font-bold text-blue-600">
@@ -1096,7 +807,6 @@
                             <input v-model="saleForm.customer" type="text" placeholder="输入客户名称或联系方式" class="border p-2 rounded-lg w-full text-sm">
                         </div>
 
-                        <!-- 实时利润计算看板 -->
                         <div class="p-3.5 bg-green-50 rounded-xl border border-green-200 flex justify-between items-center">
                             <div>
                                 <div class="text-xs font-bold text-green-800">📊 预计本单毛利润：</div>
@@ -1112,7 +822,7 @@
                     </div>
                 </div>
 
-                <!-- 未选中商品时：提供快速扫码出库与手动串号匹配面板 -->
+                <!-- 未选中商品时：快速扫码出库与手动串号匹配面板 -->
                 <div v-else class="space-y-6 py-4">
                     <div class="p-6 bg-green-50/60 border-2 border-dashed border-green-300 rounded-2xl text-center space-y-4">
                         <div class="text-3xl">📷</div>
@@ -1269,7 +979,6 @@
                         </div>
                     </div>
 
-                    <!-- 批量出库实时总利润汇总 -->
                     <div class="p-3 bg-green-50 rounded-xl border border-green-200 flex justify-between items-center text-xs">
                         <span class="font-bold text-green-800">批量出库共 {{ selectedCount }} 件 | 预计总销售额：¥{{ batchTotalSales }}</span>
                         <span class="text-base font-extrabold text-green-600">预计总毛利：+¥{{ batchTotalProfit }}</span>
@@ -1357,7 +1066,6 @@
                 const entryType = ref('phone');
                 const todayStr = new Date().toISOString().slice(0, 10);
 
-                // 超期预警天数 (仅 yilin 可修改)
                 const warningDays = ref(Number(localStorage.getItem('phone_warning_days')) || 30);
                 watch(warningDays, (val) => {
                     if (currentUser.value === 'yilin') {
@@ -1372,7 +1080,6 @@
                 const selectedItem = ref(null);
                 const manualOutboundImei = ref('');
 
-                // 录入表单初始结构
                 const newPhone = ref({
                     model: '', platform: 'apple', rom: '128G', ram: '8G', expandable: '不支持',
                     region: '国行', appearance: '完美无瑕疵', screencondition: '屏幕无划痕',
@@ -1391,7 +1098,6 @@
                     }
                 };
 
-                // 🍏 苹果型号智能纠错与自动补齐 iPhone 前缀函数
                 const normalizeAppleModelName = (rawModel) => {
                     let m = (rawModel || '').trim();
                     if (!m) return '';
@@ -1399,9 +1105,7 @@
                     const match = m.match(prefixRegex);
                     if (match) {
                         const rest = match[1].trim();
-                        return rest ? `iPhone ${rest}` : 'iPhone';
-                    }
-                    return `iPhone ${m}`;
+                        return rest ? `iPhone ${rest}` : 'iPhone'; } return `iPhone ${m}`;
                 };
 
                 const newComputer = ref({
@@ -1439,19 +1143,7 @@
                     if (imeiMatch) {
                         if (entryType.value === 'phone') newPhone.value.imei = imeiMatch[1];
                         else if (entryType.value === 'computer') newComputer.value.imei = imeiMatch[1];
-                        recognized.push(`串号:${imeiMatch[1]}`);
-                        text = text.replace(imeiMatch[0], ' ');
-                    }
-
-                    // 2. 提取进货价与零售价 (例如：进800 / 成本800 / 收800，售1100 / 卖1100 / 标1100)
-                    const costMatch = text.match(/(?:进货价|进价|成本价|成本|回收价|收|进)\s*[:：]?\s*(\d+(?:\.\d+)?)/);
-                    if (costMatch) {
-                        const c = Number(costMatch[1]);
-                        if (entryType.value === 'phone') newPhone.value.cost = c;
-                        else if (entryType.value === 'computer') newComputer.value.cost = c;
-                        else if (entryType.value === 'accessory') newAccessory.value.cost = c;
-                        else if (entryType.value === 'scrap') newScrap.value.cost = c;
-                        recognized.push(`进价:¥${c}`);
+                        recognized.push(`串号:${imeiMatch[1]}`); text = text.replace(imeiMatch[0], ' '); }  // 2. 提取进货价与零售价 const costMatch = text.match(/(?:进货价\vert{}进价\vert{}成本价\vert{}成本\vert{}回收价\vert{}收\vert{}进)\s*[:：]?\s*(\d+(?:\.\d+)?)/); if (costMatch) { const c = Number(costMatch[1]); if (entryType.value === 'phone') newPhone.value.cost = c; else if (entryType.value === 'computer') newComputer.value.cost = c; else if (entryType.value === 'accessory') newAccessory.value.cost = c; else if (entryType.value === 'scrap') newScrap.value.cost = c; recognized.push(`进价:¥${c}`);
                         text = text.replace(costMatch[0], ' ');
                     }
 
@@ -1462,81 +1154,25 @@
                         else if (entryType.value === 'computer') newComputer.value.price = p;
                         else if (entryType.value === 'accessory') newAccessory.value.price = p;
                         else if (entryType.value === 'scrap') newScrap.value.price = p;
-                        recognized.push(`售价:¥${p}`);
-                        text = text.replace(priceMatch[0], ' ');
-                    }
-
-                    // 3. 针对【手机】的专项智能解析
-                    if (entryType.value === 'phone') {
-                        // 3.1 判断平台 (苹果 vs 安卓)
-                        if (/(?:iphone|iphona|iphon|iphoe|ipone|ihpone|iphne|苹果)/i.test(text)) {
-                            newPhone.value.platform = 'apple';
-                            text = text.replace(/苹果/g, ' ');
-                        } else if (/(?:安卓|小米|红米|redmi|华为|huawei|mate|pura|荣耀|honor|oppo|vivo|iqoo|一加|oneplus|三星|samsung|真我|realme|魅族)/i.test(text)) {
-                            newPhone.value.platform = 'android';
-                            text = text.replace(/安卓/g, ' ');
-                        }
-
-                        // 3.2 提取地区/版本
-                        const regions = ['国行', '美版', '泰版', '欧版', '日版', '韩版', '亚太版', '其他版本'];
-                        for (const r of regions) {
-                            if (text.includes(r)) {
-                                newPhone.value.region = r;
-                                recognized.push(`版本:${r}`);
+                        recognized.push(`售价:¥${p}`); text = text.replace(priceMatch[0], ' '); }  // 3. 针对【手机】的专项智能解析 if (entryType.value === 'phone') { if (/(?:iphone\vert{}iphona\vert{}iphon\vert{}iphoe\vert{}ipone\vert{}ihpone\vert{}iphne\vert{}苹果)/i.test(text)) { newPhone.value.platform = 'apple'; text = text.replace(/苹果/g, ' '); } else if (/(?:安卓\vert{}小米\vert{}红米\vert{}redmi\vert{}华为\vert{}huawei\vert{}mate\vert{}pura\vert{}荣耀\vert{}honor\vert{}oppo\vert{}vivo\vert{}iqoo\vert{}一加\vert{}oneplus\vert{}三星\vert{}samsung\vert{}真我\vert{}realme\vert{}魅族)/i.test(text)) { newPhone.value.platform = 'android'; text = text.replace(/安卓/g, ' '); }  const regions = ['国行', '美版', '泰版', '欧版', '日版', '韩版', '亚太版', '其他版本']; for (const r of regions) { if (text.includes(r)) { newPhone.value.region = r; recognized.push(`版本:${r}`);
                                 text = text.replace(r, ' ');
                                 break;
                             }
                         }
 
-                        // 3.3 提取电池效率 (如：电池88、电池效率88%、效率92、88%)
                         const batMatch = text.match(/(?:电池效率|电池健康|电池|效率)\s*[:：]?\s*(\d{2,3})\s*%?/) || text.match(/\b(\d{2,3})%/);
                         if (batMatch) {
                             const bh = Number(batMatch[1]);
                             if (bh >= 1 && bh <= 100) {
                                 newPhone.value.batteryhealth = bh;
-                                recognized.push(`电池:${bh}%`);
-                                text = text.replace(batMatch[0], ' ');
-                            }
-                        }
-
-                        // 3.4 提取运存+内存组合 (如 12+256G / 16g+512g) 或单独 ROM (32g / 64g / 128g / 256g / 512g / 1t)
-                        const ramRomMatch = text.match(/\b(4|6|8|12|16|24)\s*[gG]?\s*[+\/]\s*(64|128|256|512|1024)\s*[gG]?|\b(4|6|8|12|16|24)\s*[gG]?\s*[+\/]\s*(1)\s*[tT]/i);
-                        if (ramRomMatch) {
-                            const ramVal = (ramRomMatch[1] || ramRomMatch[3]) + 'G';
-                            let romRaw = ramRomMatch[2] || ramRomMatch[4];
-                            const romVal = (romRaw === '1' || romRaw === '1024') ? '1T' : romRaw + 'G';
-                            newPhone.value.ram = ramVal;
-                            newPhone.value.rom = romVal;
-                            recognized.push(`内存:${ramVal}+${romVal}`);
-                            text = text.replace(ramRomMatch[0], ' ');
-                        } else {
-                            const romMatch = text.match(/\b(32|64|128|256|512)\s*(?:gb|g)\b|\b(1)\s*(?:tb|t)\b/i);
-                            if (romMatch) {
-                                const romVal = romMatch[1] ? `${romMatch[1]}G` : '1T';
+                                recognized.push(`电池:${bh}\%`); text = text.replace(batMatch[0], ' '); } }  const ramRomMatch = text.match(/\b(4\vert{}6\vert{}8\vert{}12\vert{}16\vert{}24)\s*[gG]?\s*[+\/]\s*(64\vert{}128\vert{}256\vert{}512\vert{}1024)\s*[gG]?\vert{}\b(4\vert{}6\vert{}8\vert{}12\vert{}16\vert{}24)\s*[gG]?\s*[+\/]\s*(1)\s*[tT]/i); if (ramRomMatch) { const ramVal = (ramRomMatch[1] \vert{}\vert{} ramRomMatch[3]) + 'G'; let romRaw = ramRomMatch[2] \vert{}\vert{} ramRomMatch[4]; const romVal = (romRaw === '1' \vert{}\vert{} romRaw === '1024') ? '1T' : romRaw + 'G'; newPhone.value.ram = ramVal; newPhone.value.rom = romVal; recognized.push(`内存:${ramVal}+${romVal}`); text = text.replace(ramRomMatch[0], ' '); } else { const romMatch = text.match(/\b(32\vert{}64\vert{}128\vert{}256\vert{}512)\s*(?:gb\vert{}g)\b\vert{}\b(1)\s*(?:tb\vert{}t)\b/i); if (romMatch) { const romVal = romMatch[1] ? `${romMatch[1]}G` : '1T';
                                 newPhone.value.rom = romVal;
-                                recognized.push(`容量:${romVal}`);
-                                text = text.replace(romMatch[0], ' ');
-                            }
-                        }
-
-                        // 3.5 提取机身外观
-                        const appRules = [
-                            { keys: ['完美无瑕疵', '外观完美', '完美', '极品', '充新'], val: '完美无瑕疵' },
-                            { keys: ['小划痕/掉漆', '轻微划痕', '小划痕', '掉漆', '微瑕'], val: '小划痕/掉漆' },
-                            { keys: ['明显磕碰', '磕碰', '伊拉克'], val: '明显磕碰' },
-                            { keys: ['机身弯曲', '弯曲', '弯机'], val: '机身弯曲' }
-                        ];
-                        for (const rule of appRules) {
-                            const hit = rule.keys.find(k => text.includes(k));
-                            if (hit) {
-                                newPhone.value.appearance = rule.val;
-                                recognized.push(`外观:${rule.val}`);
+                                recognized.push(`容量:${romVal}`); text = text.replace(romMatch[0], ' '); } }  const appRules = [ { keys: ['完美无瑕疵', '外观完美', '完美', '极品', '充新'], val: '完美无瑕疵' }, { keys: ['小划痕/掉漆', '轻微划痕', '小划痕', '掉漆', '微瑕'], val: '小划痕/掉漆' }, { keys: ['明显磕碰', '磕碰', '伊拉克'], val: '明显磕碰' }, { keys: ['机身弯曲', '弯曲', '弯机'], val: '机身弯曲' } ]; for (const rule of appRules) { const hit = rule.keys.find(k => text.includes(k)); if (hit) { newPhone.value.appearance = rule.val; recognized.push(`外观:${rule.val}`);
                                 text = text.replace(hit, ' ');
                                 break;
                             }
                         }
 
-                        // 3.6 提取屏幕成色
                         const scrRules = [
                             { keys: ['有漏液或者横线', '漏液', '横线', '绿线', '黑斑', '花屏'], val: '有漏液或者横线' },
                             { keys: ['无法点亮', '不亮', '黑屏'], val: '无法点亮' },
@@ -1548,30 +1184,12 @@
                             const hit = rule.keys.find(k => text.includes(k));
                             if (hit) {
                                 newPhone.value.screencondition = rule.val;
-                                recognized.push(`屏幕:${rule.val}`);
+                                recognized.push(`屏幕:${rule.val}`); text = text.replace(hit, ' '); break; } }  const batPopupRules = [ { keys: ['电池维修', '维修电池', '维护电池', '维修'], has: '维修', type: '维修' }, { keys: ['电池正品', '正品电池'], has: '正品', type: '正品' }, { keys: ['未知电池', '电池未知', '电池弹窗'], has: '有', type: '未知电池' } ]; for (const rule of batPopupRules) { const hit = rule.keys.find(k => text.includes(k)); if (hit) { newPhone.value.batterypopuphas = rule.has; newPhone.value.batterypopuptype = rule.type; recognized.push(`电池弹窗:${rule.type}`);
                                 text = text.replace(hit, ' ');
                                 break;
                             }
                         }
 
-                        // 3.7 提取电池弹窗状态 (维修 / 正品 / 维护电池 / 未知电池)
-                        const batPopupRules = [
-                            { keys: ['电池维修', '维修电池', '维护电池', '维修'], has: '维修', type: '维修' },
-                            { keys: ['电池正品', '正品电池'], has: '正品', type: '正品' },
-                            { keys: ['未知电池', '电池未知', '电池弹窗'], has: '有', type: '未知电池' }
-                        ];
-                        for (const rule of batPopupRules) {
-                            const hit = rule.keys.find(k => text.includes(k));
-                            if (hit) {
-                                newPhone.value.batterypopuphas = rule.has;
-                                newPhone.value.batterypopuptype = rule.type;
-                                recognized.push(`电池弹窗:${rule.type}`);
-                                text = text.replace(hit, ' ');
-                                break;
-                            }
-                        }
-
-                        // 3.8 提取屏幕弹窗状态
                         const scrPopupRules = [
                             { keys: ['弹窗国屏'], has: '有', type: '弹窗国屏' },
                             { keys: ['国产屏幕', '国产屏', '国屏'], has: '有', type: newPhone.value.platform === 'apple' ? '国产屏' : '国产屏幕' },
@@ -1582,29 +1200,9 @@
                             if (hit) {
                                 newPhone.value.screenpopuphas = rule.has;
                                 newPhone.value.screenpopuptype = rule.type;
-                                recognized.push(`屏幕弹窗:${rule.type}`);
-                                text = text.replace(hit, ' ');
-                                break;
-                            }
-                        }
-
-                        // 3.9 提取手机型号 (优先识别 iPhone 系列型号，或剩余的首个词组)
-                        const iphoneModelRegex = /(?:iphone|iphona|iphon|iphoe|ipone|ihpone|iphne)\s*(\d{1,2}|x|xs|xr|se)\s*(pro\s*max|pro|plus|mini|max|s)?/i;
-                        const ipMatch = text.match(iphoneModelRegex);
-                        if (ipMatch) {
-                            newPhone.value.platform = 'apple';
-                            const numPart = ipMatch[1].toUpperCase();
-                            const suffixRaw = (ipMatch[2] || '').trim().toLowerCase();
-                            let suffixFormatted = '';
-                            if (suffixRaw) {
-                                suffixFormatted = ' ' + suffixRaw.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
-                            }
-                            const finalModel = `iPhone ${numPart}${suffixFormatted}`;
-                            newPhone.value.model = finalModel;
-                            recognized.unshift(`型号:${finalModel}`);
+                                recognized.push(`屏幕弹窗:${rule.type}`); text = text.replace(hit, ' '); break; } }  const iphoneModelRegex = /(?:iphone\vert{}iphona\vert{}iphon\vert{}iphoe\vert{}ipone\vert{}ihpone\vert{}iphne)\s*(\d{1,2}\vert{}x\vert{}xs\vert{}xr\vert{}se)\s*(pro\s*max\vert{}pro\vert{}plus\vert{}mini\vert{}max\vert{}s)?/i; const ipMatch = text.match(iphoneModelRegex); if (ipMatch) { newPhone.value.platform = 'apple'; const numPart = ipMatch[1].toUpperCase(); const suffixRaw = (ipMatch[2] \vert{}\vert{} '').trim().toLowerCase(); let suffixFormatted = ''; if (suffixRaw) { suffixFormatted = ' ' + suffixRaw.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '); } const finalModel = `iPhone ${numPart}${suffixFormatted}`; newPhone.value.model = finalModel; recognized.unshift(`型号:${finalModel}`);
                             text = text.replace(ipMatch[0], ' ');
                         } else {
-                            // 如果没写 iPhone 但平台是苹果，且开头是类似 "15 pro max" / "13 pro" / "8 plus" / "8"
                             const bareAppleRegex = /^\s*(\d{1,2}|x|xs|xr|se)\s*(pro\s*max|pro|plus|mini|max|s)?\b/i;
                             const bareMatch = newPhone.value.platform === 'apple' ? text.match(bareAppleRegex) : null;
                             if (bareMatch) {
@@ -1613,87 +1211,35 @@
                                 const suffixFormatted = suffixRaw ? ' ' + suffixRaw.split(/\s+/).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ') : '';
                                 const finalModel = `iPhone ${numPart}${suffixFormatted}`;
                                 newPhone.value.model = finalModel;
-                                recognized.unshift(`型号:${finalModel}`);
-                                text = text.replace(bareMatch[0], ' ');
-                            } else {
-                                // 其他型号：取剩余文本中的第一个词作为型号
-                                const leftoverTokens = text.trim().split(/\s+/).filter(Boolean);
-                                if (leftoverTokens.length > 0) {
-                                    newPhone.value.model = leftoverTokens[0];
-                                    recognized.unshift(`型号:${leftoverTokens[0]}`);
+                                recognized.unshift(`型号:${finalModel}`); text = text.replace(bareMatch[0], ' '); } else { const leftoverTokens = text.trim().split(/\s+/).filter(Boolean); if (leftoverTokens.length > 0) { newPhone.value.model = leftoverTokens[0]; recognized.unshift(`型号:${leftoverTokens[0]}`);
                                     leftoverTokens.shift();
                                     text = leftoverTokens.join(' ');
                                 }
                             }
                         }
 
-                        // 剩余未识别的文字自动归入备注
                         const remainRemark = text.replace(/\s+/g, ' ').trim();
                         if (remainRemark) {
                             newPhone.value.remark = remainRemark;
-                            recognized.push(`备注:${remainRemark}`);
-                        }
-                    }
-
-                    // 4. 针对【电脑】的专项智能解析
-                    else if (entryType.value === 'computer') {
-                        // 提取 CPU
-                        const cpuMatch = text.match(/\b(i[3579]-\d{4,5}[a-zA-Z]*|r[579]-\d{4}[a-zA-Z]*|m[1234](?:\s*pro|\s*max)?|i[3579]|酷睿\S+|锐龙\S+)\b/i);
-                        if (cpuMatch) {
-                            newComputer.value.cpu = cpuMatch[1];
-                            recognized.push(`CPU:${cpuMatch[1]}`);
+                            recognized.push(`备注:${remainRemark}`); } }  // 4. 针对【电脑】的专项智能解析 else if (entryType.value === 'computer') { const cpuMatch = text.match(/\b(i[3579]-\d{4,5}[a-zA-Z]*\vert{}r[579]-\d{4}[a-zA-Z]*\vert{}m[1234](?:\s*pro\vert{}\s*max)?\vert{}i[3579]\vert{}酷睿\S+\vert{}锐龙\S+)\b/i); if (cpuMatch) { newComputer.value.cpu = cpuMatch[1]; recognized.push(`CPU:${cpuMatch[1]}`);
                             text = text.replace(cpuMatch[0], ' ');
                         }
-                        // 提取内存+硬盘
                         const specsMatch = text.match(/\b(\d{1,2}\s*[gG]\s*[+\/]\s*\d{3,4}\s*[gG]|\d{1,2}\s*[gG]\s*[+\/]\s*[12]\s*[tT])\b/);
                         if (specsMatch) {
                             newComputer.value.specs = specsMatch[1].toUpperCase();
-                            recognized.push(`配置:${newComputer.value.specs}`);
-                            text = text.replace(specsMatch[0], ' ');
-                        }
-                        // 外观与屏幕
-                        if (text.includes('磕碰')) { newComputer.value.appearance = '磕碰'; recognized.push('外观:磕碰'); text = text.replace('磕碰', ' '); }
-                        else if (text.includes('轻微划痕') || text.includes('划痕')) { newComputer.value.appearance = '轻微划痕'; recognized.push('外观:轻微划痕'); text = text.replace(/轻微划痕|划痕/, ' '); }
-                        else if (text.includes('外观完美') || text.includes('完美')) { newComputer.value.appearance = '外观完美'; recognized.push('外观:外观完美'); text = text.replace(/外观完美|完美/, ' '); }
-
-                        if (text.includes('漏液') || text.includes('花屏')) { newComputer.value.screencondition = '有漏液或者花屏'; recognized.push('屏幕:有漏液或者花屏'); text = text.replace(/有漏液或者花屏|漏液|花屏/, ' '); }
-                        else if (text.includes('老化')) { newComputer.value.screencondition = '老化'; recognized.push('屏幕:老化'); text = text.replace('老化', ' '); }
-                        else if (text.includes('正常')) { newComputer.value.screencondition = '正常'; recognized.push('屏幕:正常'); text = text.replace('正常', ' '); }
-
-                        const tokens = text.trim().split(/\s+/).filter(Boolean);
-                        if (tokens.length > 0) {
-                            newComputer.value.model = tokens[0];
-                            recognized.unshift(`电脑型号:${tokens[0]}`);
+                            recognized.push(`配置:${newComputer.value.specs}`); text = text.replace(specsMatch[0], ' '); } if (text.includes('磕碰')) { newComputer.value.appearance = '磕碰'; recognized.push('外观:磕碰'); text = text.replace('磕碰', ' '); } else if (text.includes('轻微划痕') \vert{}\vert{} text.includes('划痕')) { newComputer.value.appearance = '轻微划痕'; recognized.push('外观:轻微划痕'); text = text.replace(/轻微划痕\vert{}划痕/, ' '); } else if (text.includes('外观完美') \vert{}\vert{} text.includes('完美')) { newComputer.value.appearance = '外观完美'; recognized.push('外观:外观完美'); text = text.replace(/外观完美\vert{}完美/, ' '); }  if (text.includes('漏液') \vert{}\vert{} text.includes('花屏')) { newComputer.value.screencondition = '有漏液或者花屏'; recognized.push('屏幕:有漏液或者花屏'); text = text.replace(/有漏液或者花屏\vert{}漏液\vert{}花屏/, ' '); } else if (text.includes('老化')) { newComputer.value.screencondition = '老化'; recognized.push('屏幕:老化'); text = text.replace('老化', ' '); } else if (text.includes('正常')) { newComputer.value.screencondition = '正常'; recognized.push('屏幕:正常'); text = text.replace('正常', ' '); }  const tokens = text.trim().split(/\s+/).filter(Boolean); if (tokens.length > 0) { newComputer.value.model = tokens[0]; recognized.unshift(`电脑型号:${tokens[0]}`);
                             tokens.shift();
                         }
                         if (tokens.length > 0) {
                             newComputer.value.remark = tokens.join(' ');
-                            recognized.push(`备注:${newComputer.value.remark}`);
-                        }
-                    }
-
-                    // 5. 针对【配件 / 报废机】的专项智能解析
-                    else {
-                        const qtyMatch = text.match(/(\d+)\s*(?:个|件|台|条|张|套)/);
-                        if (qtyMatch) {
-                            const q = Number(qtyMatch[1]);
-                            if (entryType.value === 'accessory') newAccessory.value.quantity = q;
-                            else newScrap.value.quantity = q;
-                            recognized.push(`数量:${q}`);
+                            recognized.push(`备注:${newComputer.value.remark}`); } }  // 5. 针对【配件 / 报废机】的专项智能解析 else { const qtyMatch = text.match(/(\d+)\s*(?:个\vert{}件\vert{}台\vert{}条\vert{}张\vert{}套)/); if (qtyMatch) { const q = Number(qtyMatch[1]); if (entryType.value === 'accessory') newAccessory.value.quantity = q; else newScrap.value.quantity = q; recognized.push(`数量:${q}`);
                             text = text.replace(qtyMatch[0], ' ');
                         }
                         const tokens = text.trim().split(/\s+/).filter(Boolean);
                         if (tokens.length > 0) {
                             if (entryType.value === 'accessory') newAccessory.value.model = tokens[0];
                             else newScrap.value.model = tokens[0];
-                            recognized.unshift(`名称:${tokens[0]}`);
-                            tokens.shift();
-                        }
-                        if (tokens.length > 0) {
-                            const rem = tokens.join(' ');
-                            if (entryType.value === 'accessory') newAccessory.value.remark = rem;
-                            else newScrap.value.remark = rem;
-                            recognized.push(`备注:${rem}`);
+                            recognized.unshift(`名称:${tokens[0]}`); tokens.shift(); } if (tokens.length > 0) { const rem = tokens.join(' '); if (entryType.value === 'accessory') newAccessory.value.remark = rem; else newScrap.value.remark = rem; recognized.push(`备注:${rem}`);
                         }
                     }
 
@@ -1717,7 +1263,7 @@
                 };
 
                 // ================= 3. Supabase 云端同步与自动刷新 =================
-                const SUPABASE_URL = '[https://egnaslggwblcvzwtztfq.supabase.co](https://egnaslggwblcvzwtztfq.supabase.co)';
+                const SUPABASE_URL = 'https://egnaslggwblcvzwtztfq.supabase.co';
                 const SUPABASE_ANON_KEY = 'sb_publishable_tvPr8B53SGg88TrwLfCvGA_6aQ3rmMq';
                 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
@@ -1889,82 +1435,7 @@
                     if (matchedSold) {
                         alert(`⚠️ 串号 [${code}] (${matchedSold.model}) 处于【已售完】状态，无法重复出库！`);
                     } else {
-                        alert(`❌ 未在当前库存中找到串号为 [${code}] 的在库商品，请检查是否已入库！`);
-                    }
-                };
-
-                const startScan = async (mode = 'inboundPhone') => {
-                    scanMode.value = mode;
-                    isScanning.value = true;
-                    await nextTick();
-                    try {
-                        codeReader = new ZXing.BrowserBarcodeReader();
-                        const devices = await codeReader.listVideoInputDevices();
-                        const deviceId = devices.length > 1 ? devices[devices.length - 1].deviceId : devices[0]?.deviceId;
-                        codeReader.decodeFromVideoDevice(deviceId, 'scanner-video', (result) => {
-                            if (result) {
-                                const text = result.text.trim();
-                                stopScan();
-                                if (scanMode.value === 'outbound') {
-                                    matchAndGoToSell(text);
-                                } else if (scanMode.value === 'inboundComputer') {
-                                    newComputer.value.imei = text;
-                                    alert('电脑SN码扫描成功：' + text);
-                                } else {
-                                    newPhone.value.imei = text;
-                                    alert('手机串号扫描成功：' + text);
-                                }
-                            }
-                        });
-                    } catch (e) {
-                        isScanning.value = false;
-                        alert('无法调起摄像头，请检查浏览器权限（需HTTPS或localhost环境），或使用手动输入串号。');
-                    }
-                };
-
-                const stopScan = () => {
-                    if (codeReader) { codeReader.reset(); codeReader = null; }
-                    isScanning.value = false;
-                };
-
-                const addItem = async () => {
-                    let payload = { status: 'in', system_operator: currentUser.value };
-
-                    if (entryType.value === 'phone') {
-                        if (!newPhone.value.model || !newPhone.value.imei || newPhone.value.cost === '') {
-                            alert('请完整填写手机型号、串号IMEI和进货成本价！'); return;
-                        }
-                        if (newPhone.value.platform === 'apple') {
-                            newPhone.value.model = normalizeAppleModelName(newPhone.value.model);
-                        }
-                        payload = { ...payload, ...newPhone.value, category: 'phone', quantity: 1 };
-                    } else if (entryType.value === 'computer') {
-                        if (!newComputer.value.model || newComputer.value.cost === '') {
-                            alert('请完整填写电脑型号和进货成本价！'); return;
-                        }
-                        payload = { ...payload, ...newComputer.value, category: 'computer', quantity: 1 };
-                    } else if (entryType.value === 'accessory') {
-                        if (!newAccessory.value.model || !newAccessory.value.quantity || newAccessory.value.cost === '') {
-                            alert('请完整填写配件名称、入库数量和单个成本价！'); return;
-                        }
-                        payload = { ...payload, ...newAccessory.value, category: 'accessory', imei: '配件批次' };
-                    } else if (entryType.value === 'scrap') {
-                        if (!newScrap.value.model || !newScrap.value.quantity || newScrap.value.cost === '') {
-                            alert('请完整填写报废机型号、回收数量和单台成本价！'); return;
-                        }
-                        payload = { ...payload, ...newScrap.value, category: 'scrap', imei: '报废机批次' };
-                    }
-
-                    payload.buyer = (payload.buyer || currentUser.value).trim();
-                    payload.remark = (payload.remark || '').trim();
-                    payload.cost = Number(payload.cost) || 0;
-                    payload.price = Number(payload.price) || 0;
-
-                    const { error } = await supabaseClient.from('inventory').insert([payload]);
-                    if (error) {
-                        alert('云端入库保存失败: ' + error.message);
-                    } else {
-                        alert(`入库成功！\n商品型号: [${payload.model}]\n收购人: [${payload.buyer}] | 入库系统账号: [${payload.system_operator}]`);
+                        alert(`❌ 未在当前库存中找到串号为 [${code}] 的在库商品，请检查是否已入库！`); } };  const startScan = async (mode = 'inboundPhone') => { scanMode.value = mode; isScanning.value = true; await nextTick(); try { codeReader = new ZXing.BrowserBarcodeReader(); const devices = await codeReader.listVideoInputDevices(); const deviceId = devices.length > 1 ? devices[devices.length - 1].deviceId : devices[0]?.deviceId; codeReader.decodeFromVideoDevice(deviceId, 'scanner-video', (result) => { if (result) { const text = result.text.trim(); stopScan(); if (scanMode.value === 'outbound') { matchAndGoToSell(text); } else if (scanMode.value === 'inboundComputer') { newComputer.value.imei = text; alert('电脑SN码扫描成功：' + text); } else { newPhone.value.imei = text; alert('手机串号扫描成功：' + text); } } }); } catch (e) { isScanning.value = false; alert('无法调起摄像头，请检查浏览器权限（需HTTPS或localhost环境），或使用手动输入串号。'); } };  const stopScan = () => { if (codeReader) { codeReader.reset(); codeReader = null; } isScanning.value = false; };  const addItem = async () => { let payload = { status: 'in', system_operator: currentUser.value };  if (entryType.value === 'phone') { if (!newPhone.value.model \vert{}\vert{} !newPhone.value.imei \vert{}\vert{} newPhone.value.cost === '') { alert('请完整填写手机型号、串号IMEI和进货成本价！'); return; } if (newPhone.value.platform === 'apple') { newPhone.value.model = normalizeAppleModelName(newPhone.value.model); } payload = { ...payload, ...newPhone.value, category: 'phone', quantity: 1 }; } else if (entryType.value === 'computer') { if (!newComputer.value.model \vert{}\vert{} newComputer.value.cost === '') { alert('请完整填写电脑型号和进货成本价！'); return; } payload = { ...payload, ...newComputer.value, category: 'computer', quantity: 1 }; } else if (entryType.value === 'accessory') { if (!newAccessory.value.model \vert{}\vert{} !newAccessory.value.quantity \vert{}\vert{} newAccessory.value.cost === '') { alert('请完整填写配件名称、入库数量和单个成本价！'); return; } payload = { ...payload, ...newAccessory.value, category: 'accessory', imei: '配件批次' }; } else if (entryType.value === 'scrap') { if (!newScrap.value.model \vert{}\vert{} !newScrap.value.quantity \vert{}\vert{} newScrap.value.cost === '') { alert('请完整填写报废机型号、回收数量和单台成本价！'); return; } payload = { ...payload, ...newScrap.value, category: 'scrap', imei: '报废机批次' }; }  payload.buyer = (payload.buyer \vert{}\vert{} currentUser.value).trim(); payload.remark = (payload.remark \vert{}\vert{} '').trim(); payload.cost = Number(payload.cost) \vert{}\vert{} 0; payload.price = Number(payload.price) \vert{}\vert{} 0;  const { error } = await supabaseClient.from('inventory').insert([payload]); if (error) { alert('云端入库保存失败: ' + error.message); } else { alert(`入库成功！\n商品型号: [${payload.model}]\n收购人: [${payload.buyer}] \vert{} 入库系统账号: [${payload.system_operator}]`);
                         await fetchCloudData();
                         smartInputText.value = '';
                         smartParseSummary.value = '';
@@ -2038,31 +1509,7 @@
                     const { error: invErr } = await supabaseClient.from('inventory').update(updateData).eq('id', selectedItem.value.id);
                     if (invErr) { alert('更新库存状态失败: ' + invErr.message); return; }
 
-                    alert(`开单成功！\n经办销售人: [${saleRecord.seller}]\n本单毛利润: [+¥${profit}]\n出库时间: [${saleRecord.date}]`);
-                    selectedItem.value = null;
-                    await fetchCloudData();
-                    currentTab.value = 'inventory';
-                };
-
-                const openBatchModal = () => {
-                    batchForm.value.seller = currentUser.value;
-                    batchForm.value.customer = '';
-                    batchForm.value.date = todayStr;
-                    showBatchModal.value = true;
-                };
-
-                const confirmBatchSell = async () => {
-                    if (!batchForm.value.seller || !batchForm.value.seller.trim()) {
-                        alert('经办销售人为必填项，请输入销售人姓名！'); return;
-                    }
-                    if (!batchForm.value.date) {
-                        alert('请选择批量出库日期！'); return;
-                    }
-
-                    const items = selectedInventoryItems.value;
-                    for (const item of items) {
-                        if (item.batchActualPrice === '' || item.batchActualPrice === null || item.batchActualPrice === undefined) {
-                            alert(`请填写商品 [${item.model}] 的实际售价！`); return;
+                    alert(`开单成功！\n经办销售人: [${saleRecord.seller}]\n本单毛利润: [+¥${profit}]\n出库时间: [${saleRecord.date}]`); selectedItem.value = null; await fetchCloudData(); currentTab.value = 'inventory'; };  const openBatchModal = () => { batchForm.value.seller = currentUser.value; batchForm.value.customer = ''; batchForm.value.date = todayStr; showBatchModal.value = true; };  const confirmBatchSell = async () => { if (!batchForm.value.seller \vert{}\vert{} !batchForm.value.seller.trim()) { alert('经办销售人为必填项，请输入销售人姓名！'); return; } if (!batchForm.value.date) { alert('请选择批量出库日期！'); return; }  const items = selectedInventoryItems.value; for (const item of items) { if (item.batchActualPrice === '' \vert{}\vert{} item.batchActualPrice === null \vert{}\vert{} item.batchActualPrice === undefined) { alert(`请填写商品 [${item.model}] 的实际售价！`); return;
                         }
                     }
 
@@ -2092,7 +1539,7 @@
                     await fetchCloudData();
                 };
 
-                // ================= 7. 列表分组与统计汇总 (支持搜索备注) =================
+                // ================= 7. 列表分组与统计汇总 =================
                 const groupedInventory = computed(() => {
                     const q = searchQuery.value.toLowerCase();
                     const filtered = inventory.value.filter(item => {
