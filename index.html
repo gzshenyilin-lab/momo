@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>云端库存与账目管理系统</title>
+    <!-- 引入 Tailwind CSS 样式 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- 引入 Supabase 客户端库 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-50 min-h-screen p-6">
+    <div id="app" class="max-w-4xl mx-auto bg-white rounded-xl shadow-md overflow-hidden p-6">
+        <h1 class="text-2xl font-bold text-gray-800 mb-6 flex items-center gap-2">
+            📦 云端库存与账目管理
+        </h1>
+        
+        <!-- 数据录入表单 -->
+        <div class="flex gap-4 mb-6 bg-gray-50 p-4 rounded-lg border">
+            <input v-model="form.name" type="text" placeholder="输入商品名称或备注" class="flex-1 border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+            <input v-model.number="form.quantity" type="number" placeholder="数量" class="w-32 border rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white">
+            <button @click="addItem" class="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition font-medium">同步到云端</button>
+        </div>
+
+        <!-- 数据表格展示 -->
+        <div class="overflow-x-auto border rounded-lg">
+            <table class="w-full text-left border-collapse">
+                <thead>
+                    <tr class="bg-gray-100 border-b">
+                        <th class="p-3 text-gray-600 font-semibold">ID</th>
+                        <th class="p-3 text-gray-600 font-semibold">名称/备注</th>
+                        <th class="p-3 text-gray-600 font-semibold">数量</th>
+                        <th class="p-3 text-gray-600 font-semibold">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="item in items" :key="item.id" class="border-b hover:bg-gray-50 transition">
+                        <td class="p-3 text-gray-400 text-sm">{{ item.id }}</td>
+                        <td class="p-3 font-medium text-gray-800">{{ item.name }}</td>
+                        <td class="p-3 text-gray-600">{{ item.quantity }}</td>
+                        <td class="p-3">
+                            <button @click="deleteItem(item.id)" class="text-red-500 hover:text-red-700 text-sm font-medium">删除</button>
+                        </td>
+                    </tr>
+                    <tr v-if="items.length === 0">
+                        <td colspan="4" class="p-8 text-center text-gray-400">暂无云端数据，快在上方添加一条吧！</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const { createApp, ref, onMounted } = Vue
+
+        // ================= 配置区域（已为你填好） =================
+        const SUPABASE_URL = 'https://egnaslggwblcvzwtztfq.supabase.co'
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnbmFzbGdnd2JsY3Z6d3R6dGZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAxNTc4NzcsImV4cCI6MjA1NTczMzg3N30.你的AnonKey前半部分省略或直接使用后台复制的anon密钥' 
+        // 💡 如果上方长密钥不小心被截断，你可以随时去 Supabase 后台 Settings -> API 里复制完整的 anon/public 密钥替换单引号里的内容。
+        // =========================================================
+
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+        createApp({
+            setup() {
+                const items = ref([])
+                const form = ref({ name: '', quantity: 1 })
+
+                // 从 Supabase 云端加载数据
+                const fetchItems = async () => {
+                    const { data, error } = await supabaseClient
+                        .from('inventory')
+                        .select('*')
+                        .order('id', { ascending: false })
+                    
+                    if (error) {
+                        console.error('获取数据失败:', error)
+                        alert('获取数据失败: ' + error.message)
+                    } else {
+                        items.value = data || []
+                    }
+                }
+
+                // 添加数据并存入云端
+                const addItem = async () => {
+                    if (!form.value.name.trim()) return alert('请输入名称')
+                    
+                    const { error } = await supabaseClient
+                        .from('inventory')
+                        .insert([{ name: form.value.name, quantity: form.value.quantity }])
+
+                    if (error) {
+                        console.error('添加失败:', error)
+                        alert('添加失败: ' + error.message)
+                    } else {
+                        form.value.name = ''
+                        form.value.quantity = 1
+                        fetchItems()
+                    }
+                }
+
+                // 删除云端数据
+                const deleteItem = async (id) => {
+                    if (!confirm('确定要删除这条记录吗？')) return
+                    
+                    const { error } = await supabaseClient
+                        .from('inventory')
+                        .delete()
+                        .eq('id', id)
+
+                    if (error) {
+                        console.error('删除失败:', error)
+                        alert('删除失败: ' + error.message)
+                    } else {
+                        fetchItems()
+                    }
+                }
+
+                onMounted(() => {
+                    fetchItems()
+                })
+
+                return {
+                    items,
+                    form,
+                    addItem,
+                    deleteItem
+                }
+            }
+        }).mount('#app')
+    </script>
+</body>
+</html>
