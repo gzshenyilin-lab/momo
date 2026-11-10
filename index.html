@@ -3,352 +3,445 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>手机销售记账与串号管理系统 (云端版)</title>
-    <!-- 引入 Tailwind CSS CDN -->
+    <title>手机销售记账与串号管理系统 (云端实时同步版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <!-- 引入 Vue 3 CDN -->
     <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
-    <!-- 引入 Supabase 客户端库 -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <!-- 引入 ZXing 扫码库（用于摄像头扫条形码/IMEI） -->
     <script src="https://unpkg.com/@zxing/library@0.19.1/umd/index.min.js"></script>
 </head>
 <body class="bg-gray-100 text-gray-800">
-    <div id="app" class="max-w-4xl mx-auto p-4 sm:p-6">
-        <!-- 顶部标题 -->
-        <header class="flex justify-between items-center mb-6 bg-white p-4 rounded-xl shadow-sm">
-            <div class="flex items-center gap-2">
-                📱 <h1 class="text-xl font-bold text-blue-600">手机销售记账助手</h1>
-            </div>
-            <div class="text-xs text-green-600 bg-green-50 px-3 py-1 rounded-full font-medium border border-green-200">
-                ☁️ 已连接 Supabase 云端数据库
-            </div>
-        </header>
+    <div id="app" class="max-w-4xl mx-auto p-4 sm:p-6 space-y-6">
 
-        <!-- 选项卡切换 -->
-        <div class="flex space-x-2 mb-6">
-            <button @click="currentTab = 'inventory'" :class="currentTab === 'inventory' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2 rounded-lg font-medium shadow-sm transition">📦 库存与串号</button>
-            <button @click="currentTab = 'sales'" :class="currentTab === 'sales' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2 rounded-lg font-medium shadow-sm transition">💰 销售开单</button>
-            <button @click="currentTab = 'stats'" :class="currentTab === 'stats' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2 rounded-lg font-medium shadow-sm transition">📊 利润统计</button>
+        <!-- ================= 1. 登录/注册界面 ================= -->
+        <div v-if="!isLoggedIn" class="min-h-[80vh] flex items-center justify-center">
+            <div class="bg-white p-8 rounded-2xl shadow-md max-w-md w-full space-y-6">
+                <div class="text-center space-y-2">
+                    <div class="text-3xl">📱</div>
+                    <h1 class="text-xl font-bold text-blue-600">手机销售记账与串号管理系统</h1>
+                    <p class="text-xs text-gray-500">云端实时同步版 | 请登录操作</p>
+                </div>
+
+                <div class="flex bg-gray-100 p-1 rounded-lg text-xs">
+                    <button @click="authMode = 'login'" :class="authMode === 'login' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-gray-600'" class="flex-1 py-2 rounded transition">账号登录</button>
+                    <button @click="authMode = 'register'" :class="authMode === 'register' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-gray-600'" class="flex-1 py-2 rounded transition">内部注册</button>
+                </div>
+
+                <!-- 登录表单 -->
+                <div v-if="authMode === 'login'" class="space-y-4">
+                    <div>
+                        <label class="text-xs text-gray-500 block mb-1">用户名</label>
+                        <input v-model="loginForm.username" type="text" placeholder="输入用户名（如 yilin）" class="border p-2.5 rounded-lg w-full text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-500 block mb-1">登录密码</label>
+                        <input v-model="loginForm.password" type="password" placeholder="输入密码" class="border p-2.5 rounded-lg w-full text-sm">
+                    </div>
+                    <button @click="handleLogin" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-lg font-medium transition text-sm">立即登录系统</button>
+                </div>
+
+                <!-- 注册表单 -->
+                <div v-if="authMode === 'register'" class="space-y-4">
+                    <div>
+                        <label class="text-xs text-gray-500 block mb-1">新用户名</label>
+                        <input v-model="registerForm.username" type="text" placeholder="设置用户名" class="border p-2.5 rounded-lg w-full text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-500 block mb-1">设置密码</label>
+                        <input v-model="registerForm.password" type="password" placeholder="设置密码" class="border p-2.5 rounded-lg w-full text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-500 block mb-1">内部授权注册码 <span class="text-red-500">*</span></label>
+                        <input v-model="registerForm.inviteCode" type="password" placeholder="内部注册码（默认：960421）" class="border p-2.5 rounded-lg w-full text-sm">
+                    </div>
+                    <button @click="handleRegister" class="w-full bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-medium transition text-sm">确认注册并登录</button>
+                </div>
+            </div>
         </div>
 
-        <!-- 1. 库存与串号管理 -->
-        <div v-if="currentTab === 'inventory'" class="space-y-4">
-            <!-- 预警设置面板 -->
-            <div class="bg-amber-50 border border-amber-200 p-4 rounded-xl shadow-sm flex flex-col sm:flex-row justify-between items-center gap-3">
-                <div class="text-sm text-amber-800 flex items-center gap-2">
-                    <span>⚠️ <strong>库存周转预警：</strong> 在库超过</span>
-                    <input v-model.number="warningDays" type="number" class="border border-amber-300 w-16 p-1 text-center rounded bg-white font-bold text-amber-700">
-                    <span>天未售出将自动标记为预警机型</span>
+        <!-- ================= 2. 主系统界面 ================= -->
+        <div v-else class="space-y-6">
+            <!-- 顶部标题与操作员信息 (带实时时间显示) -->
+            <header class="flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded-xl shadow-sm gap-3">
+                <div class="flex items-center gap-2">
+                    📱 <h1 class="text-xl font-bold text-blue-600">手机销售记账助手</h1>
                 </div>
-                <div class="text-xs text-amber-700 bg-amber-100 px-3 py-1.5 rounded-lg">
-                    当前超期滞销：<strong class="text-red-600 text-sm">{{ overdueCount }}</strong> 台
+                <div class="flex items-center gap-3 flex-wrap justify-end">
+                    <span class="text-xs bg-gray-100 text-gray-600 px-2.5 py-1 rounded-lg">🕒 {{ currentTime }}</span>
+                    <span class="text-xs text-gray-500">操作员:</span>
+                    <span class="bg-blue-50 text-blue-600 font-bold px-3 py-1 rounded-lg text-sm">{{ currentUser }}</span>
+                    <span v-if="currentUser === 'yilin'" class="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded font-bold">👑 管理员</span>
+                    <button @click="handleLogout" class="text-xs text-red-500 hover:underline bg-gray-50 px-2 py-1 rounded">退出</button>
                 </div>
+            </header>
+
+            <!-- 选项卡切换 -->
+            <div class="flex space-x-1 sm:space-x-2 overflow-x-auto pb-2">
+                <button @click="currentTab = 'inventory'" :class="currentTab === 'inventory' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📦 库存与串号</button>
+                <button @click="currentTab = 'detailInventory'" :class="currentTab === 'detailInventory' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📂 详细库存</button>
+                <button @click="currentTab = 'sales'" :class="currentTab === 'sales' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">💰 销售开单</button>
+                <button @click="currentTab = 'stats'" :class="currentTab === 'stats' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📊 利润统计</button>
+                <button @click="currentTab = 'settings'" :class="currentTab === 'settings' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">⚙️ 系统设置</button>
             </div>
 
-            <!-- 入库表单区域 -->
-            <div class="bg-white p-4 rounded-xl shadow-sm space-y-4">
-                <div class="flex justify-between items-center border-b pb-3">
-                    <h2 class="font-bold">➕ 添加入库 / 进货登记</h2>
-                    <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg text-xs">
-                        <button @click="entryType = 'phone'" :class="entryType === 'phone' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600'" class="px-3 py-1.5 rounded font-medium transition">📱 手机录入</button>
-                        <button @click="entryType = 'computer'" :class="entryType === 'computer' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600'" class="px-3 py-1.5 rounded font-medium transition">💻 电脑录入</button>
-                        <button @click="entryType = 'scrap'" :class="entryType === 'scrap' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-600'" class="px-3 py-1.5 rounded font-medium transition">♻️ 报废/拆件机</button>
-                    </div>
-                </div>
-
-                <!-- 摄像头扫码弹窗层 -->
-                <div v-if="isScanning" class="bg-black/80 p-4 rounded-xl text-center space-y-3">
-                    <div class="text-white text-sm font-medium">请将条形码/IMEI对准摄像头取景框</div>
-                    <div class="relative max-w-sm mx-auto overflow-hidden rounded-lg bg-black border-2 border-blue-500">
-                        <video id="scanner-video" class="w-full h-48 object-cover"></video>
-                    </div>
-                    <button @click="stopScan" class="bg-red-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium">关闭摄像头</button>
-                </div>
-
-                <!-- A. 手机录入表单 -->
-                <div v-if="entryType === 'phone'" class="space-y-3">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <input v-model="newPhone.model" type="text" placeholder="手机型号（例：小米14 / iPhone 15）" class="border p-2 rounded-lg">
-                        <select v-model="newPhone.platform" class="border p-2 rounded-lg bg-white">
-                            <option value="android">🤖 安卓手机</option>
-                            <option value="apple">🍏 苹果手机 (iPhone)</option>
-                        </select>
-                        
-                        <!-- 带有扫码按钮的串号输入框 -->
-                        <div class="flex gap-2">
-                            <input v-model="newPhone.imei" type="text" placeholder="15位串号 IMEI（唯一）" class="border p-2 rounded-lg flex-1">
-                            <button @click="startScan" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1 shrink-0">
-                                📷 扫码识别
-                            </button>
-                        </div>
-
-                        <input v-model="newPhone.buyer" type="text" placeholder="收购人 / 经办人姓名" class="border p-2 rounded-lg">
-                        
-                        <div class="flex flex-col">
-                            <label class="text-xs text-gray-500 mb-1">选择入库日期</label>
-                            <input v-model="newPhone.indate" type="date" class="border p-2 rounded-lg bg-white">
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2">
-                            <input v-model.number="newPhone.cost" type="number" placeholder="进货价 (元)" class="border p-2 rounded-lg w-full">
-                            <input v-model.number="newPhone.price" type="number" placeholder="零售价 (元)" class="border p-2 rounded-lg w-full">
+            <!-- 1. 库存与串号管理 -->
+            <div v-if="currentTab === 'inventory'" class="space-y-4">
+                <!-- 入库表单区域 -->
+                <div class="bg-white p-4 rounded-xl shadow-sm space-y-4">
+                    <div class="flex justify-between items-center border-b pb-3">
+                        <h2 class="font-bold">➕ 添加入库 / 进货登记</h2>
+                        <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg text-xs flex-wrap gap-1">
+                            <button @click="entryType = 'phone'" :class="entryType === 'phone' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600'" class="px-3 py-1.5 rounded font-medium transition">📱 手机录入</button>
+                            <button @click="entryType = 'computer'" :class="entryType === 'computer' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600'" class="px-3 py-1.5 rounded font-medium transition">💻 电脑录入</button>
+                            <button @click="entryType = 'accessory'" :class="entryType === 'accessory' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-600'" class="px-3 py-1.5 rounded font-medium transition">🔌 配件登记</button>
+                            <button @click="entryType = 'scrap'" :class="entryType === 'scrap' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-600'" class="px-3 py-1.5 rounded font-medium transition">♻️ 报废机回收</button>
                         </div>
                     </div>
 
-                    <!-- 安卓配置 -->
-                    <div v-if="newPhone.platform === 'android'" class="p-3 bg-gray-50 rounded-lg space-y-3 border">
-                        <div class="text-xs font-bold text-gray-500">🤖 安卓配置选项</div>
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">机身内存 (ROM)</label>
-                                <select v-model="newPhone.rom" class="border p-2 rounded-lg w-full bg-white text-sm">
+                    <!-- 摄像头扫码弹窗层 -->
+                    <div v-if="isScanning" class="bg-black/80 p-4 rounded-xl text-center space-y-3">
+                        <div class="text-white text-sm font-medium">请将条形码/IMEI对准摄像头取景框</div>
+                        <div class="relative max-w-sm mx-auto overflow-hidden rounded-lg bg-black border-2 border-blue-500">
+                            <video id="scanner-video" class="w-full h-48 object-cover"></video>
+                        </div>
+                        <button @click="stopScan" class="bg-red-600 text-white px-4 py-1.5 rounded-lg text-sm font-medium">关闭摄像头</button>
+                    </div>
+
+                    <!-- A. 手机录入表单 -->
+                    <div v-if="entryType === 'phone'" class="space-y-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <input v-model="newPhone.model" type="text" placeholder="手机型号（例：iPhone 15）" class="border p-2 rounded-lg">
+                            <select v-model="newPhone.platform" class="border p-2 rounded-lg bg-white">
+                                <option value="apple">🍏 苹果手机 (iPhone)</option>
+                                <option value="android">🤖 安卓手机</option>
+                            </select>
+                            <div class="flex gap-2">
+                                <input v-model="newPhone.imei" type="text" placeholder="15位串号 IMEI" class="border p-2 rounded-lg flex-1">
+                                <button @click="startScan" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-xs font-medium shrink-0">📷 扫码</button>
+                            </div>
+                            <input v-model="newPhone.buyer" type="text" placeholder="收购人姓名" class="border p-2 rounded-lg w-full">
+                            <div class="flex flex-col">
+                                <label class="text-xs text-gray-500 mb-1">入库日期</label>
+                                <input v-model="newPhone.indate" type="date" class="border p-2 rounded-lg bg-white">
+                            </div>
+                            <div class="grid grid-cols-2 gap-2">
+                                <input v-model.number="newPhone.cost" type="number" placeholder="进货价" class="border p-2 rounded-lg w-full">
+                                <input v-model.number="newPhone.price" type="number" placeholder="零售价" class="border p-2 rounded-lg w-full">
+                            </div>
+                        </div>
+
+                        <!-- 苹果质检 -->
+                        <div v-if="newPhone.platform === 'apple'" class="p-3 bg-gray-50 rounded-lg space-y-3 border">
+                            <div class="text-xs font-bold text-gray-700">🍏 苹果手机质检配置</div>
+                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                <select v-model="newPhone.appearance" class="border p-2 rounded-lg bg-white text-sm">
+                                    <option value="完美无瑕疵">完美无瑕疵</option>
+                                    <option value="小划痕/掉漆">小划痕/掉漆</option>
+                                    <option value="明显磕碰">明显磕碰</option>
+                                    <option value="机身弯曲">机身弯曲</option>
+                                </select>
+                                <select v-model="newPhone.screencondition" class="border p-2 rounded-lg bg-white text-sm">
+                                    <option value="屏幕无划痕">屏幕无划痕</option>
+                                    <option value="轻微划痕">轻微划痕</option>
+                                    <option value="有漏液或者横线">有漏液或者横线</option>
+                                </select>
+                                <select v-model="newPhone.rom" class="border p-2 rounded-lg bg-white text-sm">
                                     <option v-for="item in ['64G', '128G', '256G', '512G', '1T']" :value="item">{{ item }}</option>
                                 </select>
                             </div>
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">运行内存 (RAM)</label>
-                                <select v-model="newPhone.ram" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                    <option v-for="item in ['4G', '8G', '12G', '16G及以上']" :value="item">{{ item }}</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">是否支持内存扩展</label>
-                                <select v-model="newPhone.expandable" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                    <option value="支持">支持扩展卡</option>
-                                    <option value="不支持">不支持扩展</option>
-                                </select>
-                            </div>
                         </div>
                     </div>
 
-                    <!-- 苹果配置 -->
-                    <div v-if="newPhone.platform === 'apple'" class="p-3 bg-gray-50 rounded-lg space-y-3 border">
-                        <div class="text-xs font-bold text-gray-500">🍏 苹果配置选项</div>
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">机身内存 (ROM)</label>
-                                <select v-model="newPhone.rom" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                    <option v-for="item in ['32G', '64G', '128G', '256G', '512G', '1T']" :value="item">{{ item }}</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">版本/地区归属</label>
-                                <select v-model="newPhone.region" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                    <option v-for="item in ['国行', '美版', '泰版', '欧版', '日版', '韩版', '亚太版']" :value="item">{{ item }}</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">生物识别状态</label>
-                                <select v-model="newPhone.unlocktype" class="border p-2 rounded-lg w-full bg-white text-sm font-medium text-blue-600">
-                                    <option value="面容正常">🟢 面容正常</option>
-                                    <option value="无面容">🔴 无面容 (故障)</option>
-                                    <option value="指纹正常">🟢 指纹正常 (如SE/8代)</option>
-                                    <option value="无指纹">🔴 无指纹 (Home键故障)</option>
-                                </select>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- B. 电脑录入表单 -->
-                <div v-if="entryType === 'computer'" class="space-y-3">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <input v-model="newComputer.model" type="text" placeholder="电脑型号（例：联想小新Pro 14 / MacBook）" class="border p-2 rounded-lg">
-                        <input v-model="newComputer.cpu" type="text" placeholder="处理器配置（例：i5-13500H / M2）" class="border p-2 rounded-lg">
-                        <input v-model="newComputer.specs" type="text" placeholder="内存与硬盘（例：16G+512G）" class="border p-2 rounded-lg">
-                        <input v-model="newComputer.imei" type="text" placeholder="序列号 / SN码 (选填，可不填)" class="border p-2 rounded-lg">
-                        <input v-model="newComputer.buyer" type="text" placeholder="收购人 / 经办人姓名" class="border p-2 rounded-lg">
-                        
-                        <div class="flex flex-col">
-                            <label class="text-xs text-gray-500 mb-1">选择入库日期</label>
+                    <!-- B. 电脑录入 -->
+                    <div v-if="entryType === 'computer'" class="space-y-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <input v-model="newComputer.model" type="text" placeholder="电脑型号" class="border p-2 rounded-lg">
+                            <input v-model="newComputer.cpu" type="text" placeholder="CPU配置" class="border p-2 rounded-lg">
+                            <input v-model="newComputer.specs" type="text" placeholder="内存与硬盘" class="border p-2 rounded-lg">
+                            <input v-model="newComputer.imei" type="text" placeholder="序列号SN (选填)" class="border p-2 rounded-lg">
+                            <input v-model="newComputer.buyer" type="text" placeholder="收购人姓名" class="border p-2 rounded-lg w-full">
                             <input v-model="newComputer.indate" type="date" class="border p-2 rounded-lg bg-white">
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2 sm:col-span-2">
-                            <input v-model.number="newComputer.cost" type="number" placeholder="进货价 (元)" class="border p-2 rounded-lg w-full">
-                            <input v-model.number="newComputer.price" type="number" placeholder="零售价 (元)" class="border p-2 rounded-lg w-full">
+                            <div class="grid grid-cols-2 gap-2 sm:col-span-2">
+                                <input v-model.number="newComputer.cost" type="number" placeholder="进货价" class="border p-2 rounded-lg w-full">
+                                <input v-model.number="newComputer.price" type="number" placeholder="零售价" class="border p-2 rounded-lg w-full">
+                            </div>
                         </div>
                     </div>
-                </div>
 
-                <!-- C. 报废/拆件机录入表单 -->
-                <div v-if="entryType === 'scrap'" class="space-y-3">
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                        <input v-model="newScrap.model" type="text" placeholder="报废机器型号（例：iPhone X 碎屏无主板）" class="border p-2 rounded-lg">
-                        <input v-model="newScrap.buyer" type="text" placeholder="收购人姓名" class="border p-2 rounded-lg">
-                        <input v-model="newScrap.remark" type="text" placeholder="故障描述（例：进水、碎屏无主板）" class="border p-2 rounded-lg">
-                        
-                        <div class="flex flex-col">
-                            <label class="text-xs text-gray-500 mb-1">选择入库日期</label>
+                    <!-- C. 配件登记 -->
+                    <div v-if="entryType === 'accessory'" class="space-y-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <input v-model="newAccessory.model" type="text" placeholder="配件名称 (如钢化膜)" class="border p-2 rounded-lg">
+                            <input v-model.number="newAccessory.quantity" type="number" placeholder="入库数量" class="border p-2 rounded-lg">
+                            <input v-model="newAccessory.buyer" type="text" placeholder="经办采购人" class="border p-2 rounded-lg w-full">
+                            <input v-model="newAccessory.indate" type="date" class="border p-2 rounded-lg bg-white">
+                            <div class="grid grid-cols-2 gap-2 sm:col-span-2">
+                                <input v-model.number="newAccessory.cost" type="number" placeholder="单价成本" class="border p-2 rounded-lg w-full">
+                                <input v-model.number="newAccessory.price" type="number" placeholder="单价零售" class="border p-2 rounded-lg w-full">
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- D. 报废机回收 -->
+                    <div v-if="entryType === 'scrap'" class="space-y-3">
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <input v-model="newScrap.model" type="text" placeholder="报废机型号" class="border p-2 rounded-lg">
+                            <input v-model.number="newScrap.quantity" type="number" placeholder="回收数量" class="border p-2 rounded-lg">
+                            <input v-model="newScrap.buyer" type="text" placeholder="收购人" class="border p-2 rounded-lg w-full">
                             <input v-model="newScrap.indate" type="date" class="border p-2 rounded-lg bg-white">
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2 sm:col-span-2">
-                            <input v-model.number="newScrap.cost" type="number" placeholder="回收成本价 (元)" class="border p-2 rounded-lg w-full">
-                            <input v-model.number="newScrap.price" type="number" placeholder="配件估价/零售价 (元)" class="border p-2 rounded-lg w-full">
+                            <input v-model="newScrap.remark" type="text" placeholder="故障描述" class="border p-2 rounded-lg sm:col-span-2">
+                            <div class="grid grid-cols-2 gap-2 sm:col-span-2">
+                                <input v-model.number="newScrap.cost" type="number" placeholder="回收成本" class="border p-2 rounded-lg w-full">
+                                <input v-model.number="newScrap.price" type="number" placeholder="预计售价" class="border p-2 rounded-lg w-full">
+                            </div>
                         </div>
                     </div>
+
+                    <button @click="addItem" class="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition">确认入库</button>
                 </div>
 
-                <button @click="addItem" class="w-full bg-blue-600 text-white py-2 rounded-lg font-medium hover:bg-blue-700 transition">确认入库</button>
+                <!-- 库存列表 -->
+                <div class="bg-white p-4 rounded-xl shadow-sm space-y-6">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                        <h2 class="font-bold">📋 库存与销售明细流水</h2>
+                        <div class="flex gap-2">
+                            <select v-model="statusFilter" class="border p-1.5 text-sm rounded-lg bg-white">
+                                <option value="all">全部状态</option>
+                                <option value="in">仅看在库</option>
+                                <option value="sold">仅看已售</option>
+                            </select>
+                            <input v-model="searchQuery" type="text" placeholder="搜索型号或串号..." class="border p-1.5 text-sm rounded-lg w-40">
+                        </div>
+                    </div>
+
+                    <div v-if="groupedInventory.length === 0" class="text-gray-400 text-sm text-center py-6">暂无匹配的记录</div>
+
+                    <div v-for="group in groupedInventory" :key="group.month" class="border rounded-xl p-3 bg-gray-50/50">
+                        <div class="flex justify-between items-center mb-2 pb-2 border-b">
+                            <span class="font-bold text-blue-600 text-sm">📅 {{ group.month }} (共 {{ group.items.length }} 笔)</span>
+                        </div>
+
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left text-sm">
+                                <thead>
+                                    <tr class="text-gray-400 text-xs border-b">
+                                        <th class="p-2">选择</th>
+                                        <th class="p-2">类型/型号与配置</th>
+                                        <th class="p-2">串号/数量</th>
+                                        <th class="p-2">采购人 / 日期</th>
+                                        <th class="p-2">成本价</th>
+                                        <th class="p-2">状态与售出流水</th>
+                                        <th class="p-2">操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="item in group.items" :key="item.id" class="border-b bg-white hover:bg-blue-50/20">
+                                        <td class="p-2">
+                                            <input v-if="item.status === 'in'" type="checkbox" v-model="item.selected" class="w-4 h-4 text-blue-600 rounded">
+                                        </td>
+                                        <td class="p-2">
+                                            <div class="font-medium flex items-center gap-1.5">
+                                                <span class="px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-700">{{ item.category }}</span>
+                                                {{ item.model }}
+                                            </div>
+                                        </td>
+                                        <td class="p-2 font-mono text-xs">
+                                            <span v-if="item.category === 'accessory' || item.category === 'scrap'">数量: {{ item.quantity }}</span>
+                                            <span v-else>{{ item.imei || '无' }}</span>
+                                        </td>
+                                        <td class="p-2 text-xs text-gray-500">
+                                            <div>{{ item.buyer }}</div>
+                                            <div>{{ item.indate }}</div>
+                                        </td>
+                                        <td class="p-2">¥{{ item.cost }}</td>
+                                        <td class="p-2">
+                                            <div v-if="item.status === 'in'"><span class="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs">在库</span></div>
+                                            <div v-else class="text-xs space-y-0.5">
+                                                <span class="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs">已售</span>
+                                                <div class="text-blue-600">售: ¥{{ getSaleInfo(item.id).actualPrice }}</div>
+                                                <div class="text-indigo-600">销售人: {{ getSaleInfo(item.id).seller }}</div>
+                                                <div class="text-gray-400 text-[10px]">时间: {{ getSaleInfo(item.id).date }}</div>
+                                            </div>
+                                        </td>
+                                        <td class="p-2 space-x-2">
+                                            <button v-if="item.status === 'in'" @click="goToSell(item)" class="text-blue-600 hover:underline">去销售</button>
+                                            <button @click="deleteItem(item.id)" class="text-red-500 hover:underline">删除</button>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- 批量出库栏 -->
+                    <div class="mt-4 flex justify-between items-center bg-blue-50 p-3 rounded-xl border border-blue-100">
+                        <div class="text-sm text-blue-800">已勾选 <strong>{{ selectedCount }}</strong> 件</div>
+                        <button @click="openBatchModal" :disabled="selectedCount === 0" :class="selectedCount > 0 ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-300 text-gray-500'" class="px-4 py-2 rounded-lg text-sm font-medium transition">
+                            ⚡ 勾选一键出库
+                        </button>
+                    </div>
+                </div>
             </div>
 
-            <!-- 库存列表 -->
-            <div class="bg-white p-4 rounded-xl shadow-sm space-y-6">
-                <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                    <h2 class="font-bold">📋 当前库存列表（按入库月份归类）</h2>
-                    <input v-model="searchQuery" type="text" placeholder="搜索型号或串号..." class="border p-1.5 text-sm rounded-lg w-44">
+            <!-- 2. 详细库存 -->
+            <div v-if="currentTab === 'detailInventory'" class="space-y-6">
+                <div class="bg-white p-4 rounded-xl shadow-sm flex items-center justify-between flex-wrap gap-2">
+                    <h2 class="font-bold text-lg text-blue-600">📂 分类详细库存盘点</h2>
+                    <div class="flex bg-gray-100 p-1 rounded-lg text-xs flex-wrap">
+                        <button @click="detailSubTab = 'phone'" :class="detailSubTab === 'phone' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">📱 手机 ({{ phoneInventory.length }})</button>
+                        <button @click="detailSubTab = 'computer'" :class="detailSubTab === 'computer' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">💻 电脑 ({{ computerInventory.length }})</button>
+                        <button @click="detailSubTab = 'accessory'" :class="detailSubTab === 'accessory' ? 'bg-white text-green-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">🔌 配件 ({{ accessoryInventory.length }})</button>
+                        <button @click="detailSubTab = 'scrap'" :class="detailSubTab === 'scrap' ? 'bg-white text-red-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">♻️ 报废机 ({{ scrapInventory.length }})</button>
+                    </div>
                 </div>
 
-                <div v-if="groupedInventory.length === 0" class="text-gray-400 text-sm text-center py-6">暂无匹配的库存记录</div>
-
-                <div v-for="group in groupedInventory" :key="group.month" class="border rounded-xl p-3 bg-gray-50/50">
-                    <div class="flex justify-between items-center mb-2 pb-2 border-b">
-                        <span class="font-bold text-blue-600 text-sm">📅 {{ group.month }} (共 {{ group.items.length }} 件)</span>
-                        <span class="text-xs text-gray-500">总货值: ¥{{ group.items.reduce((s, i) => s + Number(i.cost), 0) }}</span>
-                    </div>
-
+                <div class="bg-white p-4 rounded-xl shadow-sm space-y-4">
                     <div class="overflow-x-auto">
                         <table class="w-full text-left text-sm">
                             <thead>
                                 <tr class="text-gray-400 text-xs border-b">
-                                    <th class="p-2">选择</th>
-                                    <th class="p-2">类型/型号与配置</th>
-                                    <th class="p-2">串号/SN码</th>
-                                    <th class="p-2">收货信息</th>
-                                    <th class="p-2">进货价</th>
-                                    <th class="p-2">状态</th>
+                                    <th class="p-2">名称与型号</th>
+                                    <th class="p-2">库存数量 / 串号</th>
+                                    <th class="p-2">采购人与日期</th>
+                                    <th class="p-2">进价/售价</th>
                                     <th class="p-2">操作</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="item in group.items" :key="item.id" class="border-b bg-white hover:bg-blue-50/20">
-                                    <td class="p-2">
-                                        <input v-if="item.status === 'in'" type="checkbox" v-model="item.selected" class="w-4 h-4 text-blue-600 rounded">
+                                <tr v-for="item in currentDetailList" :key="item.id" class="border-b hover:bg-gray-50">
+                                    <td class="p-2 font-medium">{{ item.model }}</td>
+                                    <td class="p-2 font-mono text-xs">
+                                        <span v-if="item.category === 'accessory' || item.category === 'scrap'" class="font-bold text-blue-600">{{ item.quantity }}个/台</span>
+                                        <span v-else>{{ item.imei || '无串号' }}</span>
                                     </td>
-                                    <td class="p-2">
-                                        <div class="font-medium flex items-center gap-1.5">
-                                            <span :class="{
-                                                'bg-blue-100 text-blue-700': item.category === 'phone',
-                                                'bg-purple-100 text-purple-700': item.category === 'computer',
-                                                'bg-red-100 text-red-700': item.category === 'scrap'
-                                            }" class="px-1.5 py-0.5 rounded text-[10px]">
-                                                {{ item.category === 'phone' ? '手机' : (item.category === 'computer' ? '电脑' : '报废机') }}
-                                            </span>
-                                            {{ item.model }}
-                                            <span v-if="item.status === 'in' && getDays(item.indate) >= warningDays" class="bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse">
-                                                ⚠️ 超期{{ getDays(item.indate) }}天
-                                            </span>
-                                        </div>
-                                        <div class="text-xs text-gray-500">
-                                            <span v-if="item.category === 'phone' && item.platform === 'android'">安卓 | {{ item.ram }}RAM + {{ item.rom }} | 扩展:{{ item.expandable }}</span>
-                                            <span v-else-if="item.category === 'phone'">苹果 | {{ item.rom }} | {{ item.region }} | <strong :class="item.unlocktype?.includes('无') ? 'text-red-500' : 'text-green-600'">{{ item.unlocktype }}</strong></span>
-                                            <span v-else-if="item.category === 'computer'">{{ item.cpu }} | {{ item.specs }}</span>
-                                            <span v-else class="text-red-500">故障备注：{{ item.remark || '无' }}</span>
-                                        </div>
-                                    </td>
-                                    <td class="p-2 font-mono text-xs">{{ item.imei || '未填' }}</td>
                                     <td class="p-2 text-xs text-gray-500">
-                                        <div>收货人: <strong class="text-gray-700">{{ item.buyer || '未填' }}</strong></div>
-                                        <div>{{ item.indate }} (<span :class="item.status === 'in' && getDays(item.indate) >= warningDays ? 'text-red-600 font-bold' : ''">在库{{ getDays(item.indate) }}天</span>)</div>
+                                        <div>{{ item.buyer }}</div>
+                                        <div>{{ item.indate }}</div>
                                     </td>
-                                    <td class="p-2">¥{{ item.cost }}</td>
-                                    <td class="p-2">
-                                        <span :class="item.status === 'in' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'" class="px-2 py-0.5 rounded text-xs">
-                                            {{ item.status === 'in' ? '在库' : '已售/处理' }}
-                                        </span>
+                                    <td class="p-2 text-xs">
+                                        <div>进: ¥{{ item.cost }}</div>
+                                        <div class="text-blue-600">售: ¥{{ item.price }}</div>
                                     </td>
                                     <td class="p-2">
-                                        <button v-if="item.status === 'in'" @click="goToSell(item)" class="text-blue-600 hover:underline">去销售</button>
+                                        <button @click="goToSell(item)" class="text-blue-600 hover:underline text-xs">去销售</button>
                                     </td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
+            </div>
 
-                <!-- 批量出库栏 -->
-                <div class="mt-4 flex justify-between items-center bg-blue-50 p-3 rounded-xl border border-blue-100">
-                    <div class="text-sm text-blue-800">
-                        已勾选 <strong class="text-blue-600">{{ selectedCount }}</strong> 件在库商品
+            <!-- 3. 销售开单 (已加入出库日期选择) -->
+            <div v-if="currentTab === 'sales'" class="bg-white p-4 rounded-xl shadow-sm space-y-4 max-w-xl mx-auto">
+                <h2 class="font-bold text-lg text-blue-600 border-b pb-3">🏷️ 零售开单结算</h2>
+                <div v-if="selectedItem">
+                    <div class="p-3 bg-blue-50 rounded-lg text-sm mb-4 space-y-1">
+                        <p><strong>正在售出：</strong> {{ selectedItem.model }}</p>
+                        <p><strong>进货成本单价：</strong> ¥{{ selectedItem.cost }}</p>
                     </div>
-                    <button @click="batchSell" :disabled="selectedCount === 0" :class="selectedCount > 0 ? 'bg-green-600 hover:bg-green-700 text-white' : 'bg-gray-300 text-gray-500 cursor-not-allowed'" class="px-4 py-2 rounded-lg text-sm font-medium transition">
-                        ⚡ 勾选一键出库
-                    </button>
-                </div>
-            </div>
-        </div>
 
-        <!-- 2. 销售开单 -->
-        <div v-if="currentTab === 'sales'" class="bg-white p-4 rounded-xl shadow-sm space-y-4">
-            <h2 class="font-bold">🏷️ 零售开单结算</h2>
-            <div v-if="selectedItem">
-                <div class="p-3 bg-blue-50 rounded-lg text-sm mb-3 space-y-1">
-                    <p><strong>正在售出：</strong> {{ selectedItem.model }}</p>
-                    <p><strong>商品类型：</strong> 
-                        <span class="text-blue-600 font-bold">
-                            {{ selectedItem.category === 'phone' ? '手机' : (selectedItem.category === 'computer' ? '电脑' : '报废/拆件机') }}
-                        </span>
-                    </p>
-                    <p><strong>串号/编号：</strong> {{ selectedItem.imei || '无串号' }}</p>
-                    <p><strong>收购经办：</strong> {{ selectedItem.buyer || '未记录' }} (入库日期: {{ selectedItem.indate }})</p>
-                    <p><strong>成本价：</strong> ¥{{ selectedItem.cost }}</p>
-                </div>
-                <div class="space-y-3">
-                    <input v-model="saleForm.customer" type="text" placeholder="客户姓名 / 电话" class="border p-2 rounded-lg w-full">
-                    <input v-model="saleForm.seller" type="text" placeholder="销售人 / 经办人姓名" class="border p-2 rounded-lg w-full">
-                    <input v-model.number="saleForm.actualPrice" type="number" placeholder="实际成交价 (元)" class="border p-2 rounded-lg w-full">
-                    <input v-model.number="saleForm.accessoriesCost" type="number" placeholder="贴膜/手机壳等配件加收金额" class="border p-2 rounded-lg w-full">
-                    <div class="flex space-x-2">
-                        <button @click="confirmSale" class="flex-1 bg-green-600 text-white py-2 rounded-lg font-medium">完成开单</button>
-                        <button @click="selectedItem = null" class="bg-gray-300 px-4 py-2 rounded-lg">取消</button>
-                    </div>
-                </div>
-            </div>
-            <div v-else class="text-gray-500 text-center py-8">
-                请先到 <button @click="currentTab = 'inventory'" class="text-blue-600 underline">“库存与串号”</button> 页面勾选商品或点击“去销售”。
-            </div>
-        </div>
-
-        <!-- 3. 统计报表 -->
-        <div v-if="currentTab === 'stats'" class="space-y-6">
-            <div class="grid grid-cols-2 gap-4">
-                <div class="bg-white p-4 rounded-xl shadow-sm text-center">
-                    <div class="text-gray-500 text-sm">总销售额（所有历史）</div>
-                    <div class="text-xl font-bold text-blue-600 mt-1">¥{{ totalSalesAmount }}</div>
-                </div>
-                <div class="bg-white p-4 rounded-xl shadow-sm text-center">
-                    <div class="text-gray-500 text-sm">总毛利润（所有历史）</div>
-                    <div class="text-xl font-bold text-green-600 mt-1">¥{{ totalProfit }}</div>
-                </div>
-            </div>
-
-            <div class="bg-white p-4 rounded-xl shadow-sm space-y-6">
-                <h2 class="font-bold">📜 历史销售利润流水（按销售月份归类）</h2>
-                
-                <div v-if="groupedSales.length === 0" class="text-gray-400 text-sm text-center py-6">暂无销售记录</div>
-
-                <div v-for="group in groupedSales" :key="group.month" class="border rounded-xl p-3 bg-gray-50/50 space-y-3">
-                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-2 border-b gap-1">
-                        <span class="font-bold text-blue-600 text-sm">📅 {{ group.month }} 销售汇总</span>
-                        <div class="text-xs font-medium space-x-3">
-                            <span class="text-blue-700">月销售额: ¥{{ group.items.reduce((s, i) => s + i.actualPrice, 0) }}</span>
-                            <span class="text-green-700 font-bold">月毛利润: +¥{{ group.items.reduce((s, i) => s + i.profit, 0) }}</span>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">出库日期时间 <span class="text-red-500">*</span></label>
+                            <input v-model="saleForm.date" type="date" class="border p-2 rounded-lg w-full text-sm font-medium bg-white">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">客户姓名 / 电话 (选填)</label>
+                            <input v-model="saleForm.customer" type="text" placeholder="输入客户名称" class="border p-2 rounded-lg w-full text-sm">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">经办销售人 <span class="text-red-500">* (必填)</span></label>
+                            <input v-model="saleForm.seller" type="text" placeholder="输入销售人姓名" class="border p-2 rounded-lg w-full text-sm font-bold text-indigo-600">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">实际成交价 (元) <span class="text-red-500">*</span></label>
+                            <input v-model.number="saleForm.actualPrice" type="number" placeholder="输入实际成交金额" class="border p-2 rounded-lg w-full text-sm font-bold">
+                        </div>
+                        <div class="p-3 bg-green-50 rounded-xl border border-green-200 flex justify-between items-center">
+                            <span class="text-xs font-bold text-green-800">📊 预计单笔毛利润：</span>
+                            <span class="text-lg font-extrabold text-green-600">+¥{{ liveCalculatedProfit }}</span>
+                        </div>
+                        <div class="flex space-x-2 pt-2">
+                            <button @click="confirmSale" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-medium transition">确认完成开单</button>
+                            <button @click="selectedItem = null" class="bg-gray-300 hover:bg-gray-400 px-4 py-2.5 rounded-lg text-sm">取消</button>
                         </div>
                     </div>
+                </div>
+                <div v-else class="text-gray-500 text-center py-10">
+                    请先到 <button @click="currentTab = 'inventory'" class="text-blue-600 underline">“库存与串号”</button> 页面点击“去销售”。
+                </div>
+            </div>
 
-                    <div class="space-y-2">
-                        <div v-for="order in group.items" :key="order.id" class="bg-white p-3 rounded-lg border text-sm flex justify-between items-center shadow-sm">
+            <!-- 4. 统计报表 -->
+            <div v-if="currentTab === 'stats'" class="space-y-6">
+                <div class="grid grid-cols-2 gap-4">
+                    <div class="bg-white p-4 rounded-xl shadow-sm text-center">
+                        <div class="text-gray-500 text-sm">总销售额</div>
+                        <div class="text-xl font-bold text-blue-600 mt-1">¥{{ totalSalesAmount }}</div>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl shadow-sm text-center">
+                        <div class="text-gray-500 text-sm">总毛利润</div>
+                        <div class="text-xl font-bold text-green-600 mt-1">¥{{ totalProfit }}</div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 rounded-xl shadow-sm space-y-6">
+                    <h2 class="font-bold">📜 历史销售利润流水</h2>
+                    <div v-for="order in salesHistory" :key="order.id" class="bg-white p-3 rounded-lg border text-sm flex justify-between items-center shadow-sm">
+                        <div>
+                            <p class="font-medium">{{ order.model }}</p>
+                            <p class="text-xs text-gray-500">客户：{{ order.customer || '散客' }} | 销售人: <strong class="text-indigo-600">{{ order.seller }}</strong> | 出库日期：<span class="text-blue-600 font-bold">{{ order.date }}</span></p>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-bold text-blue-600">实收: ¥{{ order.actualPrice }}</p>
+                            <p class="text-xs text-green-600 font-bold">利润: +¥{{ order.profit }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. 系统设置 -->
+            <div v-if="currentTab === 'settings'" class="bg-white p-6 rounded-xl shadow-sm space-y-4 max-w-xl mx-auto">
+                <h2 class="font-bold text-lg text-blue-600 border-b pb-3">⚙️ 系统参数设置</h2>
+                <div class="p-4 bg-blue-50 rounded-xl border text-xs text-blue-800 space-y-1">
+                    <p><strong>当前登录账号：</strong> {{ currentUser }}</p>
+                    <p><strong>同步状态：</strong> 已全面开启 Supabase 实时监听通道 (Realtime)，多端修改秒级自动同步！</p>
+                </div>
+            </div>
+
+            <!-- 批量出库弹窗层 (已加入出库日期) -->
+            <div v-if="showBatchModal" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+                <div class="bg-white p-6 rounded-2xl max-w-lg w-full space-y-4 shadow-xl">
+                    <h3 class="font-bold text-lg text-blue-600">⚡ 批量出库信息确认</h3>
+                    <div class="space-y-3">
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">批量出库日期 <span class="text-red-500">*</span></label>
+                            <input v-model="batchForm.date" type="date" class="border p-2 rounded-lg w-full text-sm font-medium bg-white">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">经办销售人 <span class="text-red-500">* (必填)</span></label>
+                            <input v-model="batchForm.seller" type="text" placeholder="输入销售人姓名" class="border p-2 rounded-lg w-full text-sm font-bold text-indigo-600">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">客户名称 (选填)</label>
+                            <input v-model="batchForm.customer" type="text" placeholder="客户姓名" class="border p-2 rounded-lg w-full text-sm">
+                        </div>
+                    </div>
+                    <div class="max-h-60 overflow-y-auto space-y-2 border-t border-b py-2">
+                        <div v-for="item in selectedInventoryItems" :key="item.id" class="p-2.5 bg-gray-50 rounded-lg text-xs space-y-1.5 flex justify-between items-center">
                             <div>
-                                <p class="font-medium">{{ order.model }} <span class="text-xs text-gray-400">({{ order.imei || '无串号' }})</span></p>
-                                <p class="text-xs text-gray-500">客户：{{ order.customer || '散客' }} | 销售人: <strong class="text-gray-700">{{ order.seller || '未填' }}</strong> | 时间：{{ order.date }}</p>
+                                <div class="font-bold text-gray-800">{{ item.model }}</div>
+                                <div class="text-gray-500">成本: ¥{{ item.cost }}</div>
                             </div>
-                            <div class="text-right">
-                                <p class="font-bold text-blue-600">实收: ¥{{ order.actualPrice }}</p>
-                                <p class="text-xs text-green-600 font-bold">利润: +¥{{ order.profit }}</p>
+                            <div class="flex items-center gap-2">
+                                <span class="text-gray-600 font-medium">成交价:</span>
+                                <input v-model.number="item.batchActualPrice" type="number" class="border p-1.5 rounded w-28 text-sm font-bold bg-white text-blue-600">
                             </div>
                         </div>
+                    </div>
+                    <div class="flex space-x-2 pt-2">
+                        <button @click="confirmBatchSell" class="flex-1 bg-green-600 hover:bg-green-700 text-white py-2.5 rounded-lg font-medium transition">确认批量出库</button>
+                        <button @click="showBatchModal = false" class="bg-gray-300 hover:bg-gray-400 px-4 py-2.5 rounded-lg text-sm">取消</button>
                     </div>
                 </div>
             </div>
@@ -360,84 +453,157 @@
 
         createApp({
             setup() {
-                const currentTab = ref('inventory');
-                const searchQuery = ref('');
-                const entryType = ref('phone');
-                
-                const warningDays = ref(Number(localStorage.getItem('phone_warning_days')) || 30);
-                watch(warningDays, (val) => localStorage.setItem('phone_warning_days', val));
+                const isLoggedIn = ref(localStorage.getItem('phone_sys_logged') === 'true');
+                const currentUser = ref(localStorage.getItem('phone_sys_user') || '');
+                const authMode = ref('login');
+                const currentTime = ref('');
 
+                // 实时时钟
+                onMounted(() => {
+                    const updateTime = () => {
+                        const now = new Date();
+                        currentTime.value = now.toLocaleDateString() + ' ' + now.toTimeString().slice(0, 8);
+                    };
+                    updateTime();
+                    setInterval(updateTime, 1000);
+
+                    if (isLoggedIn.value) {
+                        fetchCloudData();
+                        setupRealtimeSync();
+                    }
+                });
+
+                const loginForm = ref({ username: '', password: '' });
+                const registerForm = ref({ username: '', password: '', inviteCode: '' });
+                const ADMIN_USER = 'yilin';
+                const ADMIN_PASS = '970906';
+                const INVITE_CODE = '960421';
+
+                const handleLogin = () => {
+                    const u = loginForm.value.username.trim();
+                    const p = loginForm.value.password.trim();
+                    const registeredUsers = JSON.parse(localStorage.getItem('phone_sys_users') || '{}');
+                    if ((u === ADMIN_USER && p === ADMIN_PASS) || (registeredUsers[u] && registeredUsers[u] === p)) {
+                        isLoggedIn.value = true;
+                        currentUser.value = u;
+                        localStorage.setItem('phone_sys_logged', 'true');
+                        localStorage.setItem('phone_sys_user', u);
+                        initUserForms(u);
+                        fetchCloudData();
+                        setupRealtimeSync();
+                    } else {
+                        alert('用户名或密码错误！');
+                    }
+                };
+
+                const handleRegister = () => {
+                    const u = registerForm.value.username.trim();
+                    const p = registerForm.value.password.trim();
+                    const code = registerForm.value.inviteCode.trim();
+                    if (code !== INVITE_CODE) { alert('内部授权注册码错误！'); return; }
+                    const registeredUsers = JSON.parse(localStorage.getItem('phone_sys_users') || '{}');
+                    registeredUsers[u] = p;
+                    localStorage.setItem('phone_sys_users', JSON.stringify(registeredUsers));
+                    isLoggedIn.value = true;
+                    currentUser.value = u;
+                    localStorage.setItem('phone_sys_logged', 'true');
+                    localStorage.setItem('phone_sys_user', u);
+                    initUserForms(u);
+                    fetchCloudData();
+                    setupRealtimeSync();
+                };
+
+                const handleLogout = () => {
+                    if (confirm('确定退出登录吗？')) {
+                        isLoggedIn.value = false;
+                        currentUser.value = '';
+                        localStorage.removeItem('phone_sys_logged');
+                        localStorage.removeItem('phone_sys_user');
+                    }
+                };
+
+                const currentTab = ref('inventory');
+                const detailSubTab = ref('phone');
+                const searchQuery = ref('');
+                const statusFilter = ref('all');
+                const entryType = ref('phone');
                 const todayStr = new Date().toISOString().slice(0, 10);
 
                 const inventory = ref([]);
                 const salesHistory = ref([]);
                 const selectedItem = ref(null);
 
-                const saleForm = ref({
-                    customer: '',
-                    seller: '',
-                    actualPrice: '',
-                    accessoriesCost: 0
+                const saleForm = ref({ customer: '', seller: currentUser.value, actualPrice: '', date: todayStr });
+                const liveCalculatedProfit = computed(() => {
+                    if (!selectedItem.value) return 0;
+                    return (Number(saleForm.value.actualPrice) || 0) - (Number(selectedItem.value.cost) || 0);
                 });
 
-                // Supabase 云端配置
+                const showBatchModal = ref(false);
+                const batchForm = ref({ seller: currentUser.value, customer: '', date: todayStr });
+
                 const SUPABASE_URL = 'https://egnaslggwblcvzwtztfq.supabase.co';
                 const SUPABASE_ANON_KEY = 'sb_publishable_tvPr8B53SGg88TrwLfCvGA_6aQ3rmMq'; 
-
                 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
+                // 获取云端数据
                 const fetchCloudData = async () => {
                     try {
-                        const { data: invData, error: invErr } = await supabaseClient
-                            .from('inventory')
-                            .select('*')
-                            .order('id', { ascending: false });
-                        if (invErr) console.error('加载库存失败:', invErr);
-                        else inventory.value = (invData || []).map(item => ({ ...item, selected: false }));
-
-                        const { data: saleData, error: saleErr } = await supabaseClient
-                            .from('sales_history')
-                            .select('*')
-                            .order('id', { ascending: false });
-                        if (saleErr) console.error('加载销售历史失败:', saleErr);
-                        else salesHistory.value = saleData || [];
-                    } catch (e) {
-                        console.error('连接云端异常:', e);
-                    }
+                        const { data: invData } = await supabaseClient.from('inventory').select('*').order('id', { ascending: false });
+                        inventory.value = (invData || []).map(item => ({ 
+                            ...item, selected: false, batchActualPrice: item.price || item.cost, quantity: item.quantity || 1 
+                        }));
+                        const { data: saleData } = await supabaseClient.from('sales_history').select('*').order('id', { ascending: false });
+                        salesHistory.value = saleData || [];
+                    } catch (e) { console.error(e); }
                 };
 
-                onMounted(() => {
-                    fetchCloudData();
-                });
-
-                const getDays = (dateStr) => {
-                    if (!dateStr) return 0;
-                    const inTime = new Date(dateStr).getTime();
-                    const now = new Date().getTime();
-                    const days = Math.floor((now - inTime) / (1000 * 60 * 60 * 24));
-                    return days >= 0 ? days : 0;
+                // 🔴 核心功能：开启 Supabase 实时同步监听（Realtime）
+                const setupRealtimeSync = () => {
+                    supabaseClient
+                        .channel('public-db-changes')
+                        .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => {
+                            fetchCloudData(); // 当库存表有任何变动，立刻自动刷新
+                        })
+                        .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_history' }, () => {
+                            fetchCloudData(); // 当销售表有任何变动，立刻自动刷新
+                        })
+                        .subscribe();
                 };
 
-                const overdueCount = computed(() => {
-                    return inventory.value.filter(item => item.status === 'in' && getDays(item.indate) >= warningDays.value).length;
+                const initUserForms = (u) => {
+                    newPhone.value.buyer = u;
+                    newComputer.value.buyer = u;
+                    newAccessory.value.buyer = u;
+                    newScrap.value.buyer = u;
+                    saleForm.value.seller = u;
+                    batchForm.value.seller = u;
+                };
+
+                const getSaleInfo = (itemId) => {
+                    const record = salesHistory.value.find(s => s.inventory_id === itemId);
+                    return record ? { actualPrice: record.actualPrice, profit: record.profit, seller: record.seller || '未填', date: record.date || '' } : { actualPrice: 0, profit: 0, seller: '未填', date: '' };
+                };
+
+                const selectedCount = computed(() => inventory.value.filter(item => item.status === 'in' && item.selected).length);
+                const selectedInventoryItems = computed(() => inventory.value.filter(item => item.status === 'in' && item.selected));
+
+                const phoneInventory = computed(() => inventory.value.filter(i => i.category === 'phone' && i.status === 'in'));
+                const computerInventory = computed(() => inventory.value.filter(i => i.category === 'computer' && i.status === 'in'));
+                const accessoryInventory = computed(() => inventory.value.filter(i => i.category === 'accessory' && i.status === 'in'));
+                const scrapInventory = computed(() => inventory.value.filter(i => i.category === 'scrap' && i.status === 'in'));
+
+                const currentDetailList = computed(() => {
+                    if (detailSubTab.value === 'phone') return phoneInventory.value;
+                    if (detailSubTab.value === 'computer') return computerInventory.value;
+                    if (detailSubTab.value === 'accessory') return accessoryInventory.value;
+                    return scrapInventory.value;
                 });
 
-                const selectedCount = computed(() => {
-                    return inventory.value.filter(item => item.status === 'in' && item.selected).length;
-                });
-
-                const newPhone = ref({
-                    model: '', platform: 'android', rom: '128G', ram: '8G', expandable: '不支持',
-                    region: '国行', unlocktype: '面容正常', imei: '', buyer: '', indate: todayStr, cost: '', price: ''
-                });
-
-                const newComputer = ref({
-                    model: '', cpu: '', specs: '', imei: '', buyer: '', indate: todayStr, cost: '', price: ''
-                });
-
-                const newScrap = ref({
-                    model: '', remark: '', imei: '', buyer: '', indate: todayStr, cost: '', price: ''
-                });
+                const newPhone = ref({ model: '', platform: 'apple', rom: '128G', region: '国行', appearance: '完美无瑕疵', screencondition: '屏幕无划痕', imei: '', buyer: currentUser.value, indate: todayStr, cost: '', price: '' });
+                const newComputer = ref({ model: '', cpu: '', specs: '', imei: '', buyer: currentUser.value, indate: todayStr, cost: '', price: '' });
+                const newAccessory = ref({ model: '', quantity: 10, buyer: currentUser.value, indate: todayStr, cost: '', price: '' });
+                const newScrap = ref({ model: '', quantity: 1, remark: '', buyer: currentUser.value, indate: todayStr, cost: '', price: '' });
 
                 const isScanning = ref(false);
                 let codeReader = null;
@@ -447,204 +613,128 @@
                     await nextTick();
                     try {
                         codeReader = new ZXing.BrowserBarcodeReader();
-                        const videoInputDevices = await codeReader.listVideoInputDevices();
-                        const selectedDeviceId = videoInputDevices.length > 1 ? videoInputDevices[videoInputDevices.length - 1].deviceId : videoInputDevices[0].deviceId;
-                        
-                        codeReader.decodeFromVideoDevice(selectedDeviceId, 'scanner-video', (result, err) => {
-                            if (result) {
-                                newPhone.value.imei = result.text;
-                                stopScan();
-                                alert('扫码成功，已自动填充串号！');
-                            }
+                        const devices = await codeReader.listVideoInputDevices();
+                        codeReader.decodeFromVideoDevice(devices[0]?.deviceId, 'scanner-video', (result) => {
+                            if (result) { newPhone.value.imei = result.text; stopScan(); alert('扫码成功！'); }
                         });
-                    } catch (err) {
-                        console.error(err);
-                        alert('无法调起摄像头，请检查浏览器权限或手动输入串号。');
-                        isScanning.value = false;
-                    }
+                    } catch (e) { isScanning.value = false; alert('摄像头无法调用'); }
                 };
 
-                const stopScan = () => {
-                    if (codeReader) {
-                        codeReader.reset();
-                        codeReader = null;
-                    }
-                    isScanning.value = false;
-                };
+                const stopScan = () => { if (codeReader) codeReader.reset(); isScanning.value = false; };
 
                 const addItem = async () => {
-                    let newItem = { status: 'in' };
-
+                    let baseData = { status: 'in' };
                     if (entryType.value === 'phone') {
-                        if (!newPhone.value.model || !newPhone.value.imei) {
-                            alert('请填写手机型号和串号 IMEI！');
-                            return;
-                        }
-                        newItem = { ...newPhone.value, category: 'phone' };
+                        if (!newPhone.value.model || !newPhone.value.imei) { alert('请填写手机型号和串号'); return; }
+                        baseData = { ...newPhone.value, category: 'phone', quantity: 1 };
                     } else if (entryType.value === 'computer') {
-                        if (!newComputer.value.model) {
-                            alert('请填写电脑型号！');
-                            return;
-                        }
-                        newItem = { ...newComputer.value, category: 'computer', imei: newComputer.value.imei || '' };
+                        if (!newComputer.value.model) { alert('请填写电脑型号'); return; }
+                        baseData = { ...newComputer.value, category: 'computer', quantity: 1 };
+                    } else if (entryType.value === 'accessory') {
+                        if (!newAccessory.value.model || !newAccessory.value.quantity) { alert('请填写配件名称和数量'); return; }
+                        baseData = { ...newAccessory.value, category: 'accessory', imei: '配件批次' };
                     } else if (entryType.value === 'scrap') {
-                        if (!newScrap.value.model) {
-                            alert('请填写报废机/拆件机名称或型号！');
-                            return;
-                        }
-                        newItem = { ...newScrap.value, category: 'scrap', imei: '' };
+                        if (!newScrap.value.model || !newScrap.value.quantity) { alert('请填写报废机型号和数量'); return; }
+                        baseData = { ...newScrap.value, category: 'scrap', imei: '报废批次' };
                     }
 
-                    const { data, error } = await supabaseClient
-                        .from('inventory')
-                        .insert([newItem])
-                        .select();
+                    const { error } = await supabaseClient.from('inventory').insert([baseData]);
+                    if (error) alert('入库失败: ' + error.message);
+                    else alert('入库成功！云端已自动同步。');
+                };
 
-                    if (error) {
-                        console.error('入库保存失败:', error);
-                        alert('云端保存失败: ' + error.message);
-                    } else {
-                        alert('入库成功并已同步到云端！');
-                        fetchCloudData();
-                        if (entryType.value === 'phone') {
-                            newPhone.value.model = ''; newPhone.value.imei = ''; newPhone.value.buyer = ''; newPhone.value.cost = ''; newPhone.value.price = '';
-                        } else if (entryType.value === 'computer') {
-                            newComputer.value.model = ''; newComputer.value.cpu = ''; newComputer.value.specs = ''; newComputer.value.imei = ''; newComputer.value.buyer = ''; newComputer.value.cost = ''; newComputer.value.price = '';
-                        } else if (entryType.value === 'scrap') {
-                            newScrap.value.model = ''; newScrap.value.remark = ''; newScrap.value.buyer = ''; newScrap.value.cost = ''; newScrap.value.price = '';
-                        }
-                    }
+                const deleteItem = async (id) => {
+                    if (!confirm('确定删除？')) return;
+                    await supabaseClient.from('inventory').delete().eq('id', id);
                 };
 
                 const groupedInventory = computed(() => {
-                    const filtered = inventory.value.filter(item => 
-                        item.model.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-                        (item.imei && item.imei.toLowerCase().includes(searchQuery.value.toLowerCase()))
-                    );
-
-                    const groups = {};
-                    filtered.forEach(item => {
-                        const monthKey = item.indate ? item.indate.slice(0, 7) : '其他日期';
-                        if (!groups[monthKey]) groups[monthKey] = [];
-                        groups[monthKey].push(item);
+                    const filtered = inventory.value.filter(item => {
+                        if (statusFilter.value === 'in' && item.status !== 'in') return false;
+                        if (statusFilter.value === 'sold' && item.status !== 'sold') return false;
+                        return item.model.toLowerCase().includes(searchQuery.value.toLowerCase());
                     });
-
-                    return Object.keys(groups).sort().reverse().map(month => ({
-                        month,
-                        items: groups[month]
-                    }));
+                    const groups = {};
+                    filtered.forEach(i => {
+                        const m = i.indate ? i.indate.slice(0, 7) : '其他';
+                        if (!groups[m]) groups[m] = [];
+                        groups[m].push(i);
+                    });
+                    return Object.keys(groups).sort().reverse().map(month => ({ month, items: groups[month] }));
                 });
 
                 const goToSell = (item) => {
                     selectedItem.value = item;
-                    saleForm.value = {
-                        customer: '',
-                        seller: '',
-                        actualPrice: item.price || '',
-                        accessoriesCost: 0
-                    };
+                    saleForm.value = { customer: '', seller: currentUser.value, actualPrice: item.price || '', date: todayStr };
                     currentTab.value = 'sales';
                 };
 
                 const confirmSale = async () => {
                     if (!selectedItem.value) return;
-                    if (!saleForm.value.actualPrice) {
-                        alert('请输入实际成交价！');
+                    if (!saleForm.value.seller.trim() || !saleForm.value.actualPrice || !saleForm.value.date) {
+                        alert('请完整填写出库日期、销售人与实际成交价！');
                         return;
                     }
-
-                    const profit = Number(saleForm.value.actualPrice) - Number(selectedItem.value.cost) + Number(saleForm.value.accessoriesCost || 0);
-                    const saleRecord = {
+                    const profit = liveCalculatedProfit.value;
+                    await supabaseClient.from('sales_history').insert([{
                         inventory_id: selectedItem.value.id,
                         model: selectedItem.value.model,
-                        imei: selectedItem.value.imei || '',
                         customer: saleForm.value.customer || '散客',
-                        seller: saleForm.value.seller || '未填',
+                        seller: saleForm.value.seller.trim(),
                         actualPrice: Number(saleForm.value.actualPrice),
                         profit: profit,
-                        date: todayStr
-                    };
-
-                    const { error: saleErr } = await supabaseClient.from('sales_history').insert([saleRecord]);
-                    if (saleErr) {
-                        alert('保存销售单失败: ' + saleErr.message);
-                        return;
-                    }
-
-                    const { error: invErr } = await supabaseClient
-                        .from('inventory')
-                        .update({ status: 'sold' })
-                        .eq('id', selectedItem.value.id);
-
-                    if (invErr) {
-                        alert('更新库存状态失败: ' + invErr.message);
-                        return;
-                    }
-
-                    alert('开单成功，数据已同步到云端！');
+                        date: saleForm.value.date
+                    }]);
+                    await supabaseClient.from('inventory').update({ status: 'sold' }).eq('id', selectedItem.value.id);
+                    alert('开单成功！');
                     selectedItem.value = null;
-                    fetchCloudData();
                     currentTab.value = 'inventory';
                 };
 
-                const batchSell = async () => {
-                    const selectedItems = inventory.value.filter(item => item.status === 'in' && item.selected);
-                    if (selectedItems.length === 0) return;
+                const openBatchModal = () => { 
+                    batchForm.value.date = todayStr;
+                    showBatchModal.value = true; 
+                };
 
-                    if (!confirm(`确定将勾选的 ${selectedItems.length} 件商品批量设为已售状态吗？`)) return;
-
-                    for (const item of selectedItems) {
-                        const profit = Number(item.price || item.cost) - Number(item.cost);
+                const confirmBatchSell = async () => {
+                    if (!batchForm.value.seller.trim() || !batchForm.value.date) { 
+                        alert('请填写出库日期与经办销售人！'); 
+                        return; 
+                    }
+                    for (const item of selectedInventoryItems.value) {
+                        if (!item.batchActualPrice) { alert(`请输入 [${item.model}] 的成交价！`); return; }
+                    }
+                    for (const item of selectedInventoryItems.value) {
+                        const actualP = Number(item.batchActualPrice);
+                        const profit = actualP - Number(item.cost);
                         await supabaseClient.from('sales_history').insert([{
                             inventory_id: item.id,
                             model: item.model,
-                            imei: item.imei || '',
-                            customer: '批量出库',
-                            seller: '管理员',
-                            actualPrice: Number(item.price || item.cost),
+                            customer: batchForm.value.customer || '散客',
+                            seller: batchForm.value.seller.trim(),
+                            actualPrice: actualP,
                             profit: profit,
-                            date: todayStr
+                            date: batchForm.value.date
                         }]);
-
-                        await supabaseClient
-                            .from('inventory')
-                            .update({ status: 'sold' })
-                            .eq('id', item.id);
+                        await supabaseClient.from('inventory').update({ status: 'sold' }).eq('id', item.id);
                     }
-
+                    showBatchModal.value = false;
                     alert('批量出库成功！');
-                    fetchCloudData();
                 };
 
-                const totalSalesAmount = computed(() => {
-                    return salesHistory.value.reduce((sum, item) => sum + Number(item.actualPrice || 0), 0);
-                });
-
-                const totalProfit = computed(() => {
-                    return salesHistory.value.reduce((sum, item) => sum + Number(item.profit || 0), 0);
-                });
-
-                const groupedSales = computed(() => {
-                    const groups = {};
-                    salesHistory.value.forEach(order => {
-                        const monthKey = order.date ? order.date.slice(0, 7) : '其他日期';
-                        if (!groups[monthKey]) groups[monthKey] = [];
-                        groups[monthKey].push(order);
-                    });
-
-                    return Object.keys(groups).sort().reverse().map(month => ({
-                        month,
-                        items: groups[month]
-                    }));
-                });
+                const totalSalesAmount = computed(() => salesHistory.value.reduce((s, i) => s + Number(i.actualPrice || 0), 0));
+                const totalProfit = computed(() => salesHistory.value.reduce((s, i) => s + Number(i.profit || 0), 0));
 
                 return {
-                    currentTab, searchQuery, entryType, warningDays,
-                    inventory, salesHistory, getDays, overdueCount, selectedCount,
-                    newPhone, newComputer, newScrap,
-                    isScanning, startScan, stopScan, addItem,
-                    groupedInventory, selectedItem, saleForm, goToSell, confirmSale, batchSell,
-                    totalSalesAmount, totalProfit, groupedSales
+                    isLoggedIn, currentUser, authMode, loginForm, registerForm, handleLogin, handleRegister, handleLogout,
+                    currentTab, detailSubTab, searchQuery, statusFilter, entryType, currentTime,
+                    inventory, salesHistory, getSaleInfo, selectedCount,
+                    phoneInventory, computerInventory, accessoryInventory, scrapInventory, currentDetailList,
+                    newPhone, newComputer, newAccessory, newScrap,
+                    isScanning, startScan, stopScan, addItem, deleteItem,
+                    groupedInventory, selectedItem, saleForm, liveCalculatedProfit, goToSell, confirmSale,
+                    showBatchModal, batchForm, selectedInventoryItems, openBatchModal, confirmBatchSell,
+                    totalSalesAmount, totalProfit
                 };
             }
         }).mount('#app');
