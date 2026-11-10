@@ -2,10 +2,6 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>手机销售记账与串号管理系统 (云端版)</title>
     <!-- 引入 Tailwind CSS CDN -->
@@ -385,10 +381,11 @@
                     accessoriesCost: 0
                 });
 
-                // ================= Supabase 配置（已内置你的项目） =================
+                // ================= Supabase 云端配置 =================
                 const SUPABASE_URL = 'https://egnaslggwblcvzwtztfq.supabase.co';
-                const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnbmFzbGdnd2JsY3Z6d3R6dGZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAxNTc4NzcsImV4cCI6MjA1NTczMzg3N30.你的AnonKey前半部分省略或直接使用后台复制的anon密钥'; 
-                // ===================================================================
+                // ⚠️ 注意：如果你还没有替换 Anon Key，请把下面引号内的内容换成你从 Supabase后台 -> Settings -> API 复制的 anon/public 密钥
+                const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVnbmFzbGdnd2JsY3Z6d3R6dGZxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDAxNTc4NzcsImV4cCI6MjA1NTczMzg3N30.请在此处粘贴你完整的AnonKey密钥'; 
+                // =====================================================
 
                 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
