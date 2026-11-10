@@ -87,7 +87,7 @@
                         
                         <div class="flex flex-col">
                             <label class="text-xs text-gray-500 mb-1">选择入库日期</label>
-                            <input v-model="newPhone.inDate" type="date" class="border p-2 rounded-lg bg-white">
+                            <input v-model="newPhone.indate" type="date" class="border p-2 rounded-lg bg-white">
                         </div>
 
                         <div class="grid grid-cols-2 gap-2">
@@ -140,7 +140,7 @@
                             </div>
                             <div>
                                 <label class="text-xs text-gray-500 block mb-1">生物识别状态</label>
-                                <select v-model="newPhone.unlockType" class="border p-2 rounded-lg w-full bg-white text-sm font-medium text-blue-600">
+                                <select v-model="newPhone.unlocktype" class="border p-2 rounded-lg w-full bg-white text-sm font-medium text-blue-600">
                                     <option value="面容正常">🟢 面容正常</option>
                                     <option value="无面容">🔴 无面容 (故障)</option>
                                     <option value="指纹正常">🟢 指纹正常 (如SE/8代)</option>
@@ -151,7 +151,7 @@
                     </div>
                 </div>
 
-                <!-- B. 电脑录入表单（序列号选填） -->
+                <!-- B. 电脑录入表单 -->
                 <div v-if="entryType === 'computer'" class="space-y-3">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <input v-model="newComputer.model" type="text" placeholder="电脑型号（例：联想小新Pro 14 / MacBook）" class="border p-2 rounded-lg">
@@ -162,7 +162,7 @@
                         
                         <div class="flex flex-col">
                             <label class="text-xs text-gray-500 mb-1">选择入库日期</label>
-                            <input v-model="newComputer.inDate" type="date" class="border p-2 rounded-lg bg-white">
+                            <input v-model="newComputer.indate" type="date" class="border p-2 rounded-lg bg-white">
                         </div>
 
                         <div class="grid grid-cols-2 gap-2 sm:col-span-2">
@@ -181,7 +181,7 @@
                         
                         <div class="flex flex-col">
                             <label class="text-xs text-gray-500 mb-1">选择入库日期</label>
-                            <input v-model="newScrap.inDate" type="date" class="border p-2 rounded-lg bg-white">
+                            <input v-model="newScrap.indate" type="date" class="border p-2 rounded-lg bg-white">
                         </div>
 
                         <div class="grid grid-cols-2 gap-2 sm:col-span-2">
@@ -237,13 +237,13 @@
                                                 {{ item.category === 'phone' ? '手机' : (item.category === 'computer' ? '电脑' : '报废机') }}
                                             </span>
                                             {{ item.model }}
-                                            <span v-if="item.status === 'in' && getDays(item.inDate) >= warningDays" class="bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse">
-                                                ⚠️ 超期{{ getDays(item.inDate) }}天
+                                            <span v-if="item.status === 'in' && getDays(item.indate) >= warningDays" class="bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse">
+                                                ⚠️ 超期{{ getDays(item.indate) }}天
                                             </span>
                                         </div>
                                         <div class="text-xs text-gray-500">
                                             <span v-if="item.category === 'phone' && item.platform === 'android'">安卓 | {{ item.ram }}RAM + {{ item.rom }} | 扩展:{{ item.expandable }}</span>
-                                            <span v-else-if="item.category === 'phone'">苹果 | {{ item.rom }} | {{ item.region }} | <strong :class="item.unlockType?.includes('无') ? 'text-red-500' : 'text-green-600'">{{ item.unlockType }}</strong></span>
+                                            <span v-else-if="item.category === 'phone'">苹果 | {{ item.rom }} | {{ item.region }} | <strong :class="item.unlocktype?.includes('无') ? 'text-red-500' : 'text-green-600'">{{ item.unlocktype }}</strong></span>
                                             <span v-else-if="item.category === 'computer'">{{ item.cpu }} | {{ item.specs }}</span>
                                             <span v-else class="text-red-500">故障备注：{{ item.remark || '无' }}</span>
                                         </div>
@@ -251,7 +251,7 @@
                                     <td class="p-2 font-mono text-xs">{{ item.imei || '未填' }}</td>
                                     <td class="p-2 text-xs text-gray-500">
                                         <div>收货人: <strong class="text-gray-700">{{ item.buyer || '未填' }}</strong></div>
-                                        <div>{{ item.inDate }} (<span :class="item.status === 'in' && getDays(item.inDate) >= warningDays ? 'text-red-600 font-bold' : ''">在库{{ getDays(item.inDate) }}天</span>)</div>
+                                        <div>{{ item.indate }} (<span :class="item.status === 'in' && getDays(item.indate) >= warningDays ? 'text-red-600 font-bold' : ''">在库{{ getDays(item.indate) }}天</span>)</div>
                                     </td>
                                     <td class="p-2">¥{{ item.cost }}</td>
                                     <td class="p-2">
@@ -292,7 +292,7 @@
                         </span>
                     </p>
                     <p><strong>串号/编号：</strong> {{ selectedItem.imei || '无串号' }}</p>
-                    <p><strong>收购经办：</strong> {{ selectedItem.buyer || '未记录' }} (入库日期: {{ selectedItem.inDate }})</p>
+                    <p><strong>收购经办：</strong> {{ selectedItem.buyer || '未记录' }} (入库日期: {{ selectedItem.indate }})</p>
                     <p><strong>成本价：</strong> ¥{{ selectedItem.cost }}</p>
                 </div>
                 <div class="space-y-3">
@@ -369,7 +369,6 @@
 
                 const todayStr = new Date().toISOString().slice(0, 10);
 
-                // 云端数据容器
                 const inventory = ref([]);
                 const salesHistory = ref([]);
                 const selectedItem = ref(null);
@@ -381,17 +380,14 @@
                     accessoriesCost: 0
                 });
 
-                // ================= Supabase 云端配置（已内置） =================
+                // Supabase 云端配置
                 const SUPABASE_URL = 'https://egnaslggwblcvzwtztfq.supabase.co';
                 const SUPABASE_ANON_KEY = 'sb_publishable_tvPr8B53SGg88TrwLfCvGA_6aQ3rmMq'; 
-                // =============================================================
 
                 const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-                // 从 Supabase 加载云端数据
                 const fetchCloudData = async () => {
                     try {
-                        // 1. 获取库存
                         const { data: invData, error: invErr } = await supabaseClient
                             .from('inventory')
                             .select('*')
@@ -399,7 +395,6 @@
                         if (invErr) console.error('加载库存失败:', invErr);
                         else inventory.value = (invData || []).map(item => ({ ...item, selected: false }));
 
-                        // 2. 获取销售历史
                         const { data: saleData, error: saleErr } = await supabaseClient
                             .from('sales_history')
                             .select('*')
@@ -424,7 +419,7 @@
                 };
 
                 const overdueCount = computed(() => {
-                    return inventory.value.filter(item => item.status === 'in' && getDays(item.inDate) >= warningDays.value).length;
+                    return inventory.value.filter(item => item.status === 'in' && getDays(item.indate) >= warningDays.value).length;
                 });
 
                 const selectedCount = computed(() => {
@@ -433,18 +428,17 @@
 
                 const newPhone = ref({
                     model: '', platform: 'android', rom: '128G', ram: '8G', expandable: '不支持',
-                    region: '国行', unlockType: '面容正常', imei: '', buyer: '', inDate: todayStr, cost: '', price: ''
+                    region: '国行', unlocktype: '面容正常', imei: '', buyer: '', indate: todayStr, cost: '', price: ''
                 });
 
                 const newComputer = ref({
-                    model: '', cpu: '', specs: '', imei: '', buyer: '', inDate: todayStr, cost: '', price: ''
+                    model: '', cpu: '', specs: '', imei: '', buyer: '', indate: todayStr, cost: '', price: ''
                 });
 
                 const newScrap = ref({
-                    model: '', remark: '', imei: '', buyer: '', inDate: todayStr, cost: '', price: ''
+                    model: '', remark: '', imei: '', buyer: '', indate: todayStr, cost: '', price: ''
                 });
 
-                // --- 摄像头扫码识别逻辑 ---
                 const isScanning = ref(false);
                 let codeReader = null;
 
@@ -478,7 +472,6 @@
                     isScanning.value = false;
                 };
 
-                // 添加商品并同步至 Supabase 云端
                 const addItem = async () => {
                     let newItem = { status: 'in' };
 
@@ -502,7 +495,6 @@
                         newItem = { ...newScrap.value, category: 'scrap', imei: '' };
                     }
 
-                    // 写入云端数据库
                     const { data, error } = await supabaseClient
                         .from('inventory')
                         .insert([newItem])
@@ -513,8 +505,7 @@
                         alert('云端保存失败: ' + error.message);
                     } else {
                         alert('入库成功并已同步到云端！');
-                        fetchCloudData(); // 重新拉取
-                        // 重置表单
+                        fetchCloudData();
                         if (entryType.value === 'phone') {
                             newPhone.value.model = ''; newPhone.value.imei = ''; newPhone.value.buyer = ''; newPhone.value.cost = ''; newPhone.value.price = '';
                         } else if (entryType.value === 'computer') {
@@ -533,7 +524,7 @@
 
                     const groups = {};
                     filtered.forEach(item => {
-                        const monthKey = item.inDate ? item.inDate.slice(0, 7) : '其他日期';
+                        const monthKey = item.indate ? item.indate.slice(0, 7) : '其他日期';
                         if (!groups[monthKey]) groups[monthKey] = [];
                         groups[monthKey].push(item);
                     });
@@ -574,14 +565,12 @@
                         date: todayStr
                     };
 
-                    // 1. 写入销售历史表
                     const { error: saleErr } = await supabaseClient.from('sales_history').insert([saleRecord]);
                     if (saleErr) {
                         alert('保存销售单失败: ' + saleErr.message);
                         return;
                     }
 
-                    // 2. 更新库存状态为已售 ('sold')
                     const { error: invErr } = await supabaseClient
                         .from('inventory')
                         .update({ status: 'sold' })
