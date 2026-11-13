@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>手机销售记账与串号管理系统 (经典兼容版)</title>
-    <!-- 使用极速稳定的 CDN 源 -->
+    <title>手机销售记账与串号管理系统 (终极全功能云端版)</title>
+    <!-- 全部采用 jsDelivr 官方高速镜像，确保 Vue3、Supabase 和包含 BrowserBarcodeReader 的完整版 ZXing 100% 正常加载 -->
     <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/vue/3.4.21/vue.global.prod.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.4.21/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.19.1/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@zxing/library@0.19.1/umd/index.min.js"></script>
     <style>
-        [v-cloak] { display: none !important; }
+        [v-cloak] { display: none; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -85,7 +85,7 @@
                 </div>
             </header>
 
-            <!-- 经典 ZXing 摄像头扫码弹窗层 -->
+            <!-- 全局摄像头扫码弹窗层 (支持实时视频流扫码 + 切换前后镜头 + 系统相机拍照识码兜底) -->
             <div v-if="isScanning" class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50">
                 <div class="bg-gray-900 p-5 rounded-2xl max-w-sm w-full text-center space-y-4 border border-gray-700 shadow-2xl">
                     <div class="text-white text-sm font-bold flex items-center justify-center gap-2">
@@ -94,9 +94,22 @@
                         </span>
                         <span>请将条形码/IMEI对准取景框</span>
                     </div>
+
                     <div class="relative mx-auto overflow-hidden rounded-xl bg-black border-2" :class="scanMode === 'outbound' ? 'border-green-500' : 'border-blue-500'">
-                        <video id="scanner-video" class="w-full h-56 object-cover"></video>
+                        <video id="scanner-video" class="w-full h-56 object-cover" playsinline muted></video>
                     </div>
+
+                    <!-- 多摄像头切换与系统相机拍照兜底 -->
+                    <div class="flex gap-2 justify-center">
+                        <button v-if="videoDevices.length > 1" @click="switchCamera" class="bg-gray-700 hover:bg-gray-600 text-white px-3 py-1.5 rounded-lg text-xs font-medium transition">
+                            🔄 切换镜头 ({{ currentCameraIndex + 1 }}/{{ videoDevices.length }})
+                        </button>
+                        <label class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition inline-flex items-center gap-1">
+                            📸 拍照/选图识别
+                            <input type="file" accept="image/*" capture="environment" @change="handleImageScan" class="hidden">
+                        </label>
+                    </div>
+
                     <p class="text-xs text-gray-400">
                         {{ scanMode === 'outbound' ? '识别成功后将自动匹配在库商品并跳转开单' : '识别成功后将自动填入串号输入框' }}
                     </p>
@@ -107,145 +120,4 @@
             <!-- 选项卡切换 -->
             <div class="flex space-x-1 sm:space-x-2 overflow-x-auto pb-1">
                 <button @click="currentTab = 'inventory'" :class="currentTab === 'inventory' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📦 库存与串号</button>
-                <button @click="currentTab = 'detailInventory'" :class="currentTab === 'detailInventory' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📂 详细库存 ({{ totalInStockCount }})</button>
-                <button @click="currentTab = 'sales'" :class="currentTab === 'sales' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">💰 销售开单 / 扫码出库</button>
-                <button @click="currentTab = 'stats'" :class="currentTab === 'stats' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📊 利润统计</button>
-                <button @click="currentTab = 'settings'" :class="currentTab === 'settings' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">
-                    ⚙️ 系统设置 <span v-if="overdueCount > 0" class="ml-1 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{{ overdueCount }}</span>
-                </button>
-            </div>
-
-            <!-- ================= TAB 1: 库存与串号管理 ================= -->
-            <div v-if="currentTab === 'inventory'" class="space-y-4">
-                <div class="bg-white p-4 rounded-xl shadow-sm space-y-4">
-                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 gap-2">
-                        <h2 class="font-bold">➕ 添加入库 / 进货登记</h2>
-                        <div class="flex space-x-1 bg-gray-100 p-1 rounded-lg text-xs flex-wrap gap-1">
-                            <button @click="entryType = 'phone'" :class="entryType === 'phone' ? 'bg-white text-blue-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">📱 手机录入</button>
-                            <button @click="entryType = 'computer'" :class="entryType === 'computer' ? 'bg-white text-purple-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">💻 电脑录入</button>
-                            <button @click="entryType = 'accessory'" :class="entryType === 'accessory' ? 'bg-white text-green-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">🔌 配件登记</button>
-                            <button @click="entryType = 'scrap'" :class="entryType === 'scrap' ? 'bg-white text-red-600 shadow-sm font-bold' : 'text-gray-600'" class="px-3 py-1.5 rounded transition">♻️ 报废机回收</button>
-                        </div>
-                    </div>
-
-                    <!-- 手机录入 -->
-                    <div v-if="entryType === 'phone'" class="space-y-3">
-                        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">手机型号 <span class="text-red-500">*</span></label>
-                                <input v-model="newPhone.model" type="text" :placeholder="newPhone.platform === 'apple' ? '例：15 Pro Max' : '例：小米14'" class="border p-2 rounded-lg w-full text-sm">
-                            </div>
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">系统平台</label>
-                                <select v-model="newPhone.platform" class="border p-2 rounded-lg bg-white w-full text-sm">
-                                    <option value="apple">🍏 苹果手机 (iPhone)</option>
-                                    <option value="android">🤖 安卓手机</option>
-                                </select>
-                            </div>
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">入库数量 (台) <span class="text-red-500">*</span></label>
-                                <input v-model.number="newPhone.quantity" type="number" min="1" class="border p-2 rounded-lg w-full text-sm font-bold text-blue-600">
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">15位串号 IMEI <span class="text-red-500">*</span></label>
-                                <div class="flex gap-2">
-                                    <input v-model="newPhone.imei" type="text" placeholder="输入或扫描串号" class="border p-2 rounded-lg flex-1 text-sm font-mono">
-                                    <button @click="startScan('inboundPhone')" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-medium shrink-0 transition">📷 扫码</button>
-                                </div>
-                            </div>
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">收购人 <span class="text-red-500">*</span></label>
-                                <input v-model="newPhone.buyer" type="text" class="border p-2 rounded-lg w-full text-sm">
-                            </div>
-                            <div>
-                                <label class="text-xs text-gray-500 block mb-1">入库日期</label>
-                                <input v-model="newPhone.indate" type="date" class="border p-2 rounded-lg bg-white w-full text-sm">
-                            </div>
-                            <div class="grid grid-cols-2 gap-2">
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">成本价 (元) <span class="text-red-500">*</span></label>
-                                    <input v-model.number="newPhone.cost" type="number" class="border p-2 rounded-lg w-full text-sm">
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">零售价 (元)</label>
-                                    <input v-model.number="newPhone.price" type="number" class="border p-2 rounded-lg w-full text-sm">
-                                </div>
-                            </div>
-                            <div class="sm:col-span-2">
-                                <label class="text-xs text-gray-500 block mb-1">选填备注</label>
-                                <input v-model="newPhone.remark" type="text" placeholder="例：带原盒、送壳膜等..." class="border p-2 rounded-lg w-full text-sm bg-yellow-50/30">
-                            </div>
-                        </div>
-
-                        <!-- 苹果质检 -->
-                        <div v-if="newPhone.platform === 'apple'" class="p-3 bg-blue-50/40 rounded-lg space-y-3 border border-blue-100">
-                            <div class="text-xs font-bold text-blue-800">🍏 苹果质检配置 (7色可选)</div>
-                            <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">🎨 颜色</label>
-                                    <select v-model="newPhone.color" class="border p-2 rounded-lg w-full bg-white text-sm font-medium text-blue-700">
-                                        <option v-for="c in ['黑色', '白色', '原色', '粉色', '蓝色', '金色', '绿色']" :key="c" :value="c">{{ c }}</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">机身外观</label>
-                                    <select v-model="newPhone.appearance" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                        <option value="完美无瑕疵">完美无瑕疵</option>
-                                        <option value="小划痕/掉漆">小划痕/掉漆</option>
-                                        <option value="明显磕碰">明显磕碰</option>
-                                        <option value="机身弯曲">机身弯曲</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">屏幕成色</label>
-                                    <select v-model="newPhone.screencondition" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                        <option value="屏幕无划痕">屏幕无划痕</option>
-                                        <option value="轻微划痕">轻微划痕</option>
-                                        <option value="严重划痕">严重划痕</option>
-                                        <option value="有漏液或者横线">有漏液或者横线</option>
-                                        <option value="无法点亮">无法点亮</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">内存 (ROM)</label>
-                                    <select v-model="newPhone.rom" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                        <option v-for="item in ['32G', '64G', '128G', '256G', '512G', '1T']" :value="item">{{ item }}</option>
-                                    </select>
-                                </div>
-                            </div>
-                            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-blue-100">
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">版本归属</label>
-                                    <select v-model="newPhone.region" class="border p-2 rounded-lg w-full bg-white text-sm font-bold text-blue-600">
-                                        <option v-for="item in ['国行', '美版', '泰版', '欧版', '日版', '韩版', '亚太版', '其他版本']" :value="item">{{ item }}</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">屏幕弹窗</label>
-                                    <select v-model="newPhone.screenpopuphas" class="border p-2 rounded-lg w-full bg-white text-sm">
-                                        <option value="无">无弹窗</option>
-                                        <option value="有">有弹窗</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label class="text-xs text-gray-500 block mb-1">电池效率(%) / 弹窗</label>
-                                    <div class="flex gap-2">
-                                        <input v-model.number="newPhone.batteryhealth" type="number" placeholder="88" class="border p-2 rounded-lg w-20 text-sm bg-white">
-                                        <select v-model="newPhone.batterypopuphas" class="border p-2 rounded-lg flex-1 bg-white text-sm">
-                                            <option value="无">无弹窗</option>
-                                            <option value="维修">维修</option>
-                                            <option value="正品">正品</option>
-                                            <option value="有">其他弹窗</option>
-                                        </select>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- 安卓质检 -->
-                        <div v-if="newPhone.platform === 'android'" class="p-3 bg-green-50/40 rounded-lg space-y-3 border border-green-100">
-                            <div class="text-xs font-bold text-green-800">🤖 安卓质检配置 (7色可选)</div>
-                            <div class="grid grid-cols-1 sm:grid-cols-4 gap-
+                <button @click="currentTab = 'detailInventory'" :class="currentTab === 'detailInventory' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-
