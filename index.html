@@ -90,7 +90,7 @@
                 <div class="bg-gray-900 p-5 rounded-2xl max-w-sm w-full text-center space-y-4 border border-gray-700 shadow-2xl">
                     <div class="text-white text-sm font-bold flex items-center justify-center gap-2">
                         <span class="px-2 py-0.5 rounded text-xs" :class="scanMode === 'outbound' ? 'bg-green-600' : 'bg-blue-600'">
-                            {{ scanMode === 'outbound' ? '⚡ 扫码出库模式' : '➕ 扫码入库模式' }}
+                            {{ scanMode === 'outbound' ? '⚡ 扫码出库模式' : (scanMode === 'inboundPawn' ? '🏦 抵押扫码模式' : '➕ 扫码入库模式') }}
                         </span>
                         <span>请将条形码/IMEI对准取景框</span>
                     </div>
@@ -117,10 +117,14 @@
                 </div>
             </div>
 
-            <!-- 选项卡切换 -->
+            <!-- 选项卡切换 (新增 🏦 抵押管理) -->
             <div class="flex space-x-1 sm:space-x-2 overflow-x-auto pb-1">
                 <button @click="currentTab = 'inventory'" :class="currentTab === 'inventory' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📦 库存与串号</button>
                 <button @click="currentTab = 'detailInventory'" :class="currentTab === 'detailInventory' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📂 详细库存 ({{ totalInStockCount }})</button>
+                <button @click="currentTab = 'pawn'" :class="currentTab === 'pawn' ? 'bg-amber-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">
+                    🏦 抵押管理 ({{ activePawnList.length }})
+                    <span v-if="overduePawnCount > 0" class="ml-1 bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full animate-pulse">{{ overduePawnCount }}逾期</span>
+                </button>
                 <button @click="currentTab = 'sales'" :class="currentTab === 'sales' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">💰 销售开单 / 扫码出库</button>
                 <button @click="currentTab = 'stats'" :class="currentTab === 'stats' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">📊 利润统计</button>
                 <button @click="currentTab = 'settings'" :class="currentTab === 'settings' ? 'bg-blue-600 text-white' : 'bg-white text-gray-600'" class="flex-1 py-2.5 px-3 rounded-lg font-medium shadow-sm transition text-xs sm:text-sm whitespace-nowrap">
@@ -815,6 +819,214 @@
                 </div>
             </div>
 
+            <!-- ================= ✨ 新增 TAB: 🏦 抵押管理 (手机/电脑典当质押、天数与倒计时计算、利息入账、绝当转库存) ================= -->
+            <div v-if="currentTab === 'pawn'" class="space-y-6">
+                <!-- 顶部抵押数据看板 -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div class="bg-white p-4 rounded-xl shadow-sm text-center border-b-4 border-amber-500">
+                        <div class="text-xs text-gray-500">当前在押机器</div>
+                        <div class="text-2xl font-bold text-amber-600 mt-1">{{ activePawnList.length }} 台</div>
+                        <div class="text-[11px] text-gray-400">正在质押计息中</div>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl shadow-sm text-center border-b-4 border-blue-500">
+                        <div class="text-xs text-gray-500">在押放款总本金</div>
+                        <div class="text-2xl font-bold text-blue-600 mt-1">¥{{ totalActivePawnLoan }}</div>
+                        <div class="text-[11px] text-gray-400">当前待收回本金</div>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl shadow-sm text-center border-b-4 border-green-500">
+                        <div class="text-xs text-gray-500">在押待收总利息(利润)</div>
+                        <div class="text-2xl font-bold text-green-600 mt-1">+¥{{ totalActivePawnInterest }}</div>
+                        <div class="text-[11px] text-gray-400">已赎回累计赚: +¥{{ totalRedeemedPawnProfit }}</div>
+                    </div>
+                    <div class="bg-white p-4 rounded-xl shadow-sm text-center border-b-4 border-red-500">
+                        <div class="text-xs text-gray-500">今日到期 / 已逾期</div>
+                        <div class="text-2xl font-bold text-red-600 mt-1">{{ overduePawnCount }} 台</div>
+                        <div class="text-[11px] text-red-400">需联系客户赎回或续期</div>
+                    </div>
+                </div>
+
+                <!-- 1. 新增抵押登记表单 -->
+                <div class="bg-white p-4 rounded-xl shadow-sm space-y-4 border border-amber-100">
+                    <div class="flex justify-between items-center border-b pb-2.5">
+                        <h2 class="font-bold text-amber-700 flex items-center gap-1.5">
+                            🏦 新增客户抵押 / 质押登记
+                        </h2>
+                        <span class="text-xs text-gray-400">自动计算已抵押天数与到期剩余天数</span>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">客户姓名 <span class="text-red-500">*</span></label>
+                            <input v-model="newPawn.customer" type="text" placeholder="输入抵押客户姓名" class="border p-2 rounded-lg w-full text-sm">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">客户电话 / 微信 (选填)</label>
+                            <input v-model="newPawn.phone" type="text" placeholder="方便到期联系赎回" class="border p-2 rounded-lg w-full text-sm">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">经办接收人 <span class="text-red-500">*</span></label>
+                            <input v-model="newPawn.handler" type="text" placeholder="经办员工姓名" class="border p-2 rounded-lg w-full text-sm">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">抵押手机/电脑型号与配置 <span class="text-red-500">*</span></label>
+                            <input v-model="newPawn.model" type="text" placeholder="例：iPhone 15 ProMax 256G 原色" class="border p-2 rounded-lg w-full text-sm font-medium">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-500 block mb-1">15位串号 IMEI / 序列号 <span class="text-red-500">*</span></label>
+                            <div class="flex gap-2">
+                                <input v-model="newPawn.imei" type="text" placeholder="输入或扫描抵押机器串号" class="border p-2 rounded-lg flex-1 text-sm font-mono">
+                                <button @click="startScan('inboundPawn')" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 rounded-lg text-xs font-medium shrink-0 transition">
+                                    📷 扫码填入
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-5 gap-3 p-3 bg-amber-50/50 rounded-xl border border-amber-100">
+                        <div>
+                            <label class="text-xs text-gray-600 block mb-1 font-medium">抵押放款本金 (元) <span class="text-red-500">*</span></label>
+                            <input v-model.number="newPawn.loanamount" type="number" placeholder="借出给客户的钱" class="border p-2 rounded-lg w-full text-sm font-bold text-blue-600 bg-white">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-600 block mb-1 font-medium">约定利息/利润 (元) <span class="text-red-500">*</span></label>
+                            <input v-model.number="newPawn.interest" type="number" placeholder="赎回时净赚的钱" class="border p-2 rounded-lg w-full text-sm font-bold text-green-600 bg-white">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-600 block mb-1">抵押开始日期</label>
+                            <input v-model="newPawn.startdate" @change="updatePawnDueDateByDays" type="date" class="border p-2 rounded-lg w-full text-xs bg-white">
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-600 block mb-1">快捷选择周期 (天)</label>
+                            <select v-model.number="newPawn.termDays" @change="updatePawnDueDateByDays" class="border p-2 rounded-lg w-full text-xs bg-white font-bold text-amber-700">
+                                <option :value="3">3 天</option>
+                                <option :value="5">5 天</option>
+                                <option :value="7">7 天 (一周)</option>
+                                <option :value="10">10 天</option>
+                                <option :value="15">15 天 (半月)</option>
+                                <option :value="30">30 天 (一月)</option>
+                                <option :value="60">60 天 (两月)</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-xs text-gray-600 block mb-1 font-medium">约定还款/赎回日 <span class="text-red-500">*</span></label>
+                            <input v-model="newPawn.duedate" type="date" class="border p-2 rounded-lg w-full text-xs bg-white font-bold text-red-600">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs text-gray-500 block mb-1">锁屏密码 / 成色与配件备注 (选填)</label>
+                        <input v-model="newPawn.remark" type="text" placeholder="例：锁屏密码 123456、已退ID、压身份证复印件、单机无盒等..." class="border p-2 rounded-lg w-full text-sm bg-yellow-50/30">
+                    </div>
+
+                    <button @click="addPawnRecord" class="w-full bg-amber-600 hover:bg-amber-700 text-white py-2.5 rounded-lg font-bold transition shadow-sm">
+                        确认登记抵押并同步云端
+                    </button>
+                </div>
+
+                <!-- 2. 抵押记录列表与到期倒计时监控 -->
+                <div class="bg-white p-4 rounded-xl shadow-sm space-y-4">
+                    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b pb-3">
+                        <h2 class="font-bold">📋 客户抵押台账与到期监控</h2>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <select v-model="pawnStatusFilter" class="border p-1.5 text-xs sm:text-sm rounded-lg bg-white">
+                                <option value="all">全部状态 ({{ pawnList.length }})</option>
+                                <option value="active">🏦 仅看抵押中 ({{ activePawnList.length }})</option>
+                                <option value="redeemed">✅ 已赎回结清</option>
+                                <option value="forfeited">📦 已绝当转库存</option>
+                            </select>
+                            <input v-model="pawnSearchQuery" type="text" placeholder="搜客户姓名/电话/型号/串号..." class="border p-1.5 text-xs sm:text-sm rounded-lg w-52">
+                        </div>
+                    </div>
+
+                    <div v-if="filteredPawnList.length === 0" class="text-gray-400 text-sm text-center py-8">暂无匹配的抵押记录</div>
+
+                    <div v-else class="overflow-x-auto">
+                        <table class="w-full text-left text-sm">
+                            <thead>
+                                <tr class="text-gray-400 text-xs border-b">
+                                    <th class="p-2">客户信息</th>
+                                    <th class="p-2">抵押机型 / 串号 / 备注</th>
+                                    <th class="p-2">放款本金 / 约定利润</th>
+                                    <th class="p-2">抵押日期 & 还款日</th>
+                                    <th class="p-2">已押天数 / 剩余天数</th>
+                                    <th class="p-2">状态</th>
+                                    <th class="p-2">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="p in filteredPawnList" :key="p.id" class="border-b hover:bg-amber-50/20">
+                                    <td class="p-2">
+                                        <div class="font-bold text-gray-800">{{ p.customer }}</div>
+                                        <div class="text-xs text-gray-500 font-mono">{{ p.phone || '未留电话' }}</div>
+                                        <div class="text-[10px] text-gray-400">经办:{{ p.handler }}</div>
+                                    </td>
+                                    <td class="p-2">
+                                        <div class="font-bold text-blue-700">{{ p.model }}</div>
+                                        <div class="text-xs font-mono text-gray-500">IMEI: {{ p.imei }}</div>
+                                        <div v-if="p.remark" class="text-[11px] bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded inline-block mt-0.5">
+                                            📝 {{ p.remark }}
+                                        </div>
+                                    </td>
+                                    <td class="p-2">
+                                        <div class="text-xs text-gray-600">本金: <strong class="text-blue-600 text-sm">¥{{ p.loanamount }}</strong></div>
+                                        <div class="text-xs text-gray-600">利息利润: <strong class="text-green-600 text-sm">+¥{{ p.interest }}</strong></div>
+                                        <div class="text-[11px] text-gray-400">赎回需付: ¥{{ Number(p.loanamount) + Number(p.interest) }}</div>
+                                    </td>
+                                    <td class="p-2 text-xs space-y-0.5">
+                                        <div>起押: <span class="font-mono">{{ p.startdate }}</span></div>
+                                        <div>应还: <strong class="font-mono text-red-600">{{ p.duedate }}</strong></div>
+                                        <div v-if="p.redeemdate" class="text-green-600 text-[11px]">结清日: {{ p.redeemdate }}</div>
+                                    </td>
+                                    <td class="p-2">
+                                        <!-- 已押多少天 -->
+                                        <div class="text-xs text-gray-700 font-medium">
+                                            已抵押: <strong>{{ getPawnElapsedDays(p.startdate, p.redeemdate, p.status) }}</strong> 天
+                                        </div>
+                                        <!-- 剩余几天或逾期提示 -->
+                                        <div v-if="p.status === 'active'" class="mt-1">
+                                            <span v-if="getPawnRemainDays(p.duedate) > 0" class="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-bold">
+                                                ⏳ 剩余 {{ getPawnRemainDays(p.duedate) }} 天
+                                            </span>
+                                            <span v-else-if="getPawnRemainDays(p.duedate) === 0" class="bg-amber-100 text-amber-700 border border-amber-300 px-2 py-0.5 rounded text-xs font-bold animate-pulse">
+                                                ⚠️ 今日到期！
+                                            </span>
+                                            <span v-else class="bg-red-100 text-red-600 border border-red-300 px-2 py-0.5 rounded text-xs font-bold animate-pulse">
+                                                🚨 已逾期 {{ Math.abs(getPawnRemainDays(p.duedate)) }} 天
+                                            </span>
+                                        </div>
+                                        <div v-else class="text-[11px] text-gray-400 mt-0.5">已完结停止计天</div>
+                                    </td>
+                                    <td class="p-2">
+                                        <span v-if="p.status === 'active'" class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-bold">🏦 抵押中</span>
+                                        <span v-else-if="p.status === 'redeemed'" class="bg-green-100 text-green-700 px-2 py-0.5 rounded text-xs font-bold">✅ 已赎回</span>
+                                        <span v-else class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-xs font-bold">📦 已绝当入库</span>
+                                    </td>
+                                    <td class="p-2">
+                                        <div v-if="p.status === 'active'" class="flex flex-col sm:flex-row gap-1.5">
+                                            <button @click="redeemPawnItem(p)" class="bg-green-600 hover:bg-green-700 text-white px-2.5 py-1 rounded text-xs font-bold transition whitespace-nowrap">
+                                                💰 赎回结清
+                                            </button>
+                                            <button @click="renewPawnItem(p)" class="bg-blue-50 hover:bg-blue-100 text-blue-600 border border-blue-200 px-2 py-1 rounded text-xs font-medium transition whitespace-nowrap">
+                                                🔄 付息续期
+                                            </button>
+                                            <button @click="forfeitPawnToInventory(p)" class="bg-purple-50 hover:bg-purple-100 text-purple-700 border border-purple-200 px-2 py-1 rounded text-xs font-medium transition whitespace-nowrap" title="客户逾期不赎回，直接按放款本金作为进货成本转入库存列表售卖">
+                                                📦 绝当转入库
+                                            </button>
+                                        </div>
+                                        <div class="mt-1">
+                                            <button @click="deletePawnItem(p.id)" class="text-red-500 hover:underline text-xs">删除记录</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
             <!-- ================= TAB 3: 💰 销售开单 / 扫码出库 ================= -->
             <div v-if="currentTab === 'sales'" class="bg-white p-5 rounded-xl shadow-sm space-y-4 max-w-xl mx-auto">
                 <div class="flex justify-between items-center border-b pb-3">
@@ -921,20 +1133,20 @@
                         </div>
                         <div class="text-2xl font-extrabold text-green-600 mt-1.5">+¥{{ selectedDayProfit }}</div>
                         <div class="text-[11px] text-amber-700 mt-0.5">
-                            当日售 {{ selectedDayCount }} 单 | 销售额 ¥{{ selectedDaySales }}
+                            当日 {{ selectedDayCount }} 笔 | 收入 ¥{{ selectedDaySales }}
                         </div>
                     </div>
 
                     <div class="bg-white p-4 rounded-xl shadow-sm text-center border-b-4 border-blue-500 flex flex-col justify-center">
-                        <div class="text-gray-500 text-xs">历史总销售单数</div>
-                        <div class="text-2xl font-bold text-gray-800 mt-1">{{ salesHistory.length }} 单</div>
-                        <div class="text-[11px] text-gray-400 mt-0.5">累计全部出库记录</div>
+                        <div class="text-gray-500 text-xs">历史总结算笔数</div>
+                        <div class="text-2xl font-bold text-gray-800 mt-1">{{ salesHistory.length }} 笔</div>
+                        <div class="text-[11px] text-gray-400 mt-0.5">含零售出库与抵押利息结算</div>
                     </div>
 
                     <div class="bg-white p-4 rounded-xl shadow-sm text-center border-b-4 border-indigo-500 flex flex-col justify-center">
-                        <div class="text-gray-500 text-xs">总销售额（所有历史）</div>
+                        <div class="text-gray-500 text-xs">总营业额（所有历史）</div>
                         <div class="text-2xl font-bold text-blue-600 mt-1">¥{{ totalSalesAmount }}</div>
-                        <div class="text-[11px] text-gray-400 mt-0.5">含商品成交价与配件加收</div>
+                        <div class="text-[11px] text-gray-400 mt-0.5">含商品成交价与抵押利息</div>
                     </div>
 
                     <div class="bg-white p-4 rounded-xl shadow-sm text-center border-b-4 border-green-500 flex flex-col justify-center">
@@ -947,7 +1159,7 @@
                 <div class="bg-white p-4 rounded-xl shadow-sm space-y-6">
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b pb-3 gap-3">
                         <div>
-                            <h2 class="font-bold text-gray-800">📜 历史销售利润流水账单</h2>
+                            <h2 class="font-bold text-gray-800">📜 历史销售与抵押利润流水账单</h2>
                             <p class="text-xs text-gray-500">支持按“每一天”查看每日利润汇总，或按“每个月”查看月度报表</p>
                         </div>
                         <div class="flex bg-gray-100 p-1 rounded-lg text-xs">
@@ -969,10 +1181,10 @@
                                 <div class="flex items-center gap-2">
                                     <span class="font-bold text-gray-800 text-sm">☀️ {{ dayGroup.day }} 每日利润结算</span>
                                     <span v-if="dayGroup.day === todayStr" class="bg-red-100 text-red-600 text-[10px] px-2 py-0.5 rounded-full font-bold">今天</span>
-                                    <span class="text-xs text-gray-500">(共 {{ dayGroup.items.length }} 单)</span>
+                                    <span class="text-xs text-gray-500">(共 {{ dayGroup.items.length }} 笔)</span>
                                 </div>
                                 <div class="text-xs font-medium space-x-3 bg-white px-3 py-1 rounded-lg border">
-                                    <span class="text-blue-700">当日销售额: <strong>¥{{ dayGroup.totalSales }}</strong></span>
+                                    <span class="text-blue-700">当日营业额: <strong>¥{{ dayGroup.totalSales }}</strong></span>
                                     <span class="text-green-600 font-bold text-sm">当日毛利润: <strong>+¥{{ dayGroup.totalProfit }}</strong></span>
                                 </div>
                             </div>
@@ -987,8 +1199,8 @@
                                         </p>
                                         <p class="text-xs text-gray-500">
                                             客户：{{ order.customer || '散客' }} | 
-                                            经办销售人: <strong class="text-indigo-600">{{ order.seller }}</strong> | 
-                                            出库系统账号: <strong class="text-purple-600">{{ order.system_operator || '系统' }}</strong>
+                                            经办人: <strong class="text-indigo-600">{{ order.seller }}</strong> | 
+                                            系统账号: <strong class="text-purple-600">{{ order.system_operator || '系统' }}</strong>
                                         </p>
                                     </div>
                                     <div class="flex items-center gap-3 self-end sm:self-center">
@@ -1009,9 +1221,9 @@
                     <div v-else class="space-y-4">
                         <div v-for="group in groupedSales" :key="group.month" class="border rounded-xl p-3.5 bg-gray-50/50 space-y-3">
                             <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center pb-2 border-b gap-1">
-                                <span class="font-bold text-blue-600 text-sm">📅 {{ group.month }} 月度销售汇总 (共 {{ group.items.length }} 单)</span>
+                                <span class="font-bold text-blue-600 text-sm">📅 {{ group.month }} 月度销售汇总 (共 {{ group.items.length }} 笔)</span>
                                 <div class="text-xs font-medium space-x-3 bg-white px-3 py-1 rounded-lg border">
-                                    <span class="text-blue-700">当月销售额: <strong>¥{{ group.totalSales }}</strong></span>
+                                    <span class="text-blue-700">当月营业额: <strong>¥{{ group.totalSales }}</strong></span>
                                     <span class="text-green-700 font-bold text-sm">当月毛利润: <strong>+¥{{ group.totalProfit }}</strong></span>
                                 </div>
                             </div>
@@ -1026,9 +1238,9 @@
                                         </p>
                                         <p class="text-xs text-gray-500">
                                             客户：{{ order.customer || '散客' }} | 
-                                            经办销售人: <strong class="text-indigo-600">{{ order.seller }}</strong> | 
-                                            出库系统账号: <strong class="text-purple-600">{{ order.system_operator || '系统' }}</strong> | 
-                                            出库日期：<span class="text-blue-600 font-medium">{{ order.date }}</span>
+                                            经办人: <strong class="text-indigo-600">{{ order.seller }}</strong> | 
+                                            系统账号: <strong class="text-purple-600">{{ order.system_operator || '系统' }}</strong> | 
+                                            结算日期：<span class="text-blue-600 font-medium">{{ order.date }}</span>
                                         </p>
                                     </div>
                                     <div class="flex items-center gap-3 self-end sm:self-center">
@@ -1201,6 +1413,13 @@
                 const currentTime = ref('');
                 const todayStr = new Date().toISOString().slice(0, 10);
 
+                // 计算指定天数后的日期字符串
+                const addDaysToDate = (dateStr, days) => {
+                    const d = new Date(dateStr || todayStr);
+                    d.setDate(d.getDate() + Number(days));
+                    return d.toISOString().slice(0, 10);
+                };
+
                 const loginForm = ref({ username: '', password: '' });
                 const registerForm = ref({ username: '', password: '', inviteCode: '' });
                 const ADMIN_USER = 'yilin';
@@ -1223,7 +1442,6 @@
                     const mergedMap = new Map();
                     mergedMap.set('yilin', { username: 'yilin', is_admin: true });
 
-                    // 读取本地保存的用户列表
                     const localUsers = JSON.parse(localStorage.getItem('phone_sys_users') || '{}');
                     const localMeta = JSON.parse(localStorage.getItem('phone_sys_users_meta') || '[]');
                     Object.keys(localUsers).forEach(uname => {
@@ -1234,7 +1452,6 @@
                         if (m && m.username) mergedMap.set(m.username, { username: m.username, is_admin: !!m.is_admin });
                     });
 
-                    // 读取云端 system_users 表
                     try {
                         const { data, error } = await supabaseClient.from('system_users').select('*');
                         if (!error && data) {
@@ -1416,6 +1633,7 @@
 
                 const inventory = ref([]);
                 const salesHistory = ref([]);
+                const pawnList = ref([]); // 抵押记录列表
                 const selectedItem = ref(null);
                 const manualOutboundImei = ref('');
 
@@ -1465,6 +1683,204 @@
                     buyer: currentUser.value, indate: todayStr, cost: '', price: ''
                 });
 
+                // ================= 🏦 抵押管理表单与状态 =================
+                const pawnStatusFilter = ref('all');
+                const pawnSearchQuery = ref('');
+                const newPawn = ref({
+                    customer: '', phone: '', model: '', imei: '',
+                    loanamount: '', interest: '',
+                    startdate: todayStr, termDays: 7, duedate: addDaysToDate(todayStr, 7),
+                    remark: '', handler: currentUser.value
+                });
+
+                const updatePawnDueDateByDays = () => {
+                    newPawn.value.duedate = addDaysToDate(newPawn.value.startdate || todayStr, newPawn.value.termDays || 7);
+                };
+
+                // 计算已抵押多少天
+                const getPawnElapsedDays = (startDateStr, redeemDateStr, status) => {
+                    if (!startDateStr) return 1;
+                    const endMs = (status !== 'active' && redeemDateStr) ? new Date(redeemDateStr).getTime() : new Date(todayStr).getTime();
+                    const startMs = new Date(startDateStr).getTime();
+                    const diff = Math.floor((endMs - startMs) / (1000 * 3600 * 24));
+                    return diff >= 1 ? diff : 1; // 当天起算至少1天
+                };
+
+                // 计算距离约定还款日还剩几天（正数=还剩X天，0=今天到期，负数=已逾期X天）
+                const getPawnRemainDays = (dueDateStr) => {
+                    if (!dueDateStr) return 0;
+                    const dueMs = new Date(dueDateStr).getTime();
+                    const todayMs = new Date(todayStr).getTime();
+                    return Math.floor((dueMs - todayMs) / (1000 * 3600 * 24));
+                };
+
+                const activePawnList = computed(() => pawnList.value.filter(p => p.status === 'active'));
+                const overduePawnCount = computed(() => activePawnList.value.filter(p => getPawnRemainDays(p.duedate) <= 0).length);
+                const totalActivePawnLoan = computed(() => activePawnList.value.reduce((s, p) => s + Number(p.loanamount || 0), 0));
+                const totalActivePawnInterest = computed(() => activePawnList.value.reduce((s, p) => s + Number(p.interest || 0), 0));
+                const totalRedeemedPawnProfit = computed(() => pawnList.value.filter(p => p.status === 'redeemed').reduce((s, p) => s + Number(p.interest || 0), 0));
+
+                const filteredPawnList = computed(() => {
+                    const q = pawnSearchQuery.value.toLowerCase();
+                    return pawnList.value.filter(p => {
+                        if (pawnStatusFilter.value !== 'all' && p.status !== pawnStatusFilter.value) return false;
+                        return (p.customer || '').toLowerCase().includes(q) ||
+                               (p.phone || '').toLowerCase().includes(q) ||
+                               (p.model || '').toLowerCase().includes(q) ||
+                               (p.imei || '').toLowerCase().includes(q) ||
+                               (p.remark || '').toLowerCase().includes(q);
+                    });
+                });
+
+                const addPawnRecord = async () => {
+                    if (!newPawn.value.customer.trim() || !newPawn.value.model.trim() || !newPawn.value.imei.trim() || newPawn.value.loanamount === '' || newPawn.value.interest === '') {
+                        alert('请完整填写：客户姓名、抵押机型、串号IMEI、放款本金与约定利息利润！');
+                        return;
+                    }
+                    const payload = {
+                        customer: newPawn.value.customer.trim(),
+                        phone: (newPawn.value.phone || '').trim(),
+                        model: newPawn.value.model.trim(),
+                        imei: newPawn.value.imei.trim(),
+                        loanamount: Number(newPawn.value.loanamount) || 0,
+                        interest: Number(newPawn.value.interest) || 0,
+                        startdate: newPawn.value.startdate || todayStr,
+                        duedate: newPawn.value.duedate || addDaysToDate(todayStr, 7),
+                        status: 'active',
+                        redeemdate: '',
+                        remark: (newPawn.value.remark || '').trim(),
+                        handler: (newPawn.value.handler || currentUser.value).trim(),
+                        system_operator: currentUser.value
+                    };
+
+                    const { error } = await supabaseClient.from('pawn_records').insert([payload]);
+                    if (error) {
+                        alert('保存抵押记录失败（请确认已在Supabase执行建表SQL）: ' + error.message);
+                    } else {
+                        alert(`🏦 抵押登记成功！\n客户：${payload.customer}\n机器：${payload.model}\n放款本金：¥${payload.loanamount} | 约定利息：+¥${payload.interest}\n到期还款日：${payload.duedate}`);
+                        newPawn.value.customer = '';
+                        newPawn.value.phone = '';
+                        newPawn.value.model = '';
+                        newPawn.value.imei = '';
+                        newPawn.value.loanamount = '';
+                        newPawn.value.interest = '';
+                        newPawn.value.remark = '';
+                        await fetchCloudData();
+                    }
+                };
+
+                // 客户赎回结清：状态变更为 redeemed，并自动将利息利润写入 sales_history 利润表
+                const redeemPawnItem = async (p) => {
+                    const actualInterestStr = prompt(
+                        `💰 确认客户 [${p.customer}] 赎回机器 [${p.model}]？\n\n放款本金：¥${p.loanamount}\n已抵押天数：${getPawnElapsedDays(p.startdate, '', 'active')} 天\n\n请核对或修改本次实际收取的【净利息/利润金额(元)】：`,
+                        p.interest
+                    );
+                    if (actualInterestStr === null) return;
+                    const finalInterest = Number(actualInterestStr) || 0;
+
+                    const { error: pErr } = await supabaseClient
+                        .from('pawn_records')
+                        .update({ status: 'redeemed', interest: finalInterest, redeemdate: todayStr })
+                        .eq('id', p.id);
+                    if (pErr) { alert('更新抵押状态失败: ' + pErr.message); return; }
+
+                    // 同步写入销售利润流水表，使每日利润和总毛利自动包含该笔抵押利息
+                    await supabaseClient.from('sales_history').insert([{
+                        inventory_id: 0,
+                        model: `[抵押赎回利息] ${p.model}`,
+                        imei: p.imei || '',
+                        customer: p.customer,
+                        seller: currentUser.value,
+                        system_operator: currentUser.value,
+                        actualprice: finalInterest,
+                        accessoriescost: 0,
+                        salequantity: 1,
+                        profit: finalInterest,
+                        date: todayStr
+                    }]);
+
+                    alert(`✅ 赎回结清成功！\n已收回本金 ¥${p.loanamount}，净赚利息利润 +¥${finalInterest}（已自动计入今日利润统计）！`);
+                    await fetchCloudData();
+                };
+
+                // 客户付息续期：先收一期利息入账利润表，并将到期日顺延
+                const renewPawnItem = async (p) => {
+                    const paidInterestStr = prompt(`🔄 客户 [${p.customer}] 申请付息续期 [${p.model}]\n请输入本次已收取的【续期利息(元)】（将直接计入今日利润）：`, p.interest);
+                    if (paidInterestStr === null) return;
+                    const paidInterest = Number(paidInterestStr) || 0;
+
+                    const addDaysStr = prompt(`请输入从原到期日 (${p.duedate}) 往后顺延的天数：`, '7');
+                    if (addDaysStr === null) return;
+                    const extendDays = Number(addDaysStr) || 7;
+                    const nextDueDate = addDaysToDate(p.duedate, extendDays);
+
+                    const { error } = await supabaseClient
+                        .from('pawn_records')
+                        .update({ duedate: nextDueDate })
+                        .eq('id', p.id);
+                    if (error) { alert('续期失败: ' + error.message); return; }
+
+                    if (paidInterest > 0) {
+                        await supabaseClient.from('sales_history').insert([{
+                            inventory_id: 0,
+                            model: `[抵押续期利息] ${p.model}`,
+                            imei: p.imei || '',
+                            customer: p.customer,
+                            seller: currentUser.value,
+                            system_operator: currentUser.value,
+                            actualprice: paidInterest,
+                            accessoriescost: 0,
+                            salequantity: 1,
+                            profit: paidInterest,
+                            date: todayStr
+                        }]);
+                    }
+
+                    alert(`🔄 续期成功！\n新到期还款日已顺延至：${nextDueDate}\n本期收取利息 +¥${paidInterest} 已自动计入今日利润！`);
+                    await fetchCloudData();
+                };
+
+                // 逾期绝当转入库存：将抵押机以放款本金作为进货成本，直接转入 inventory 在库列表
+                const forfeitPawnToInventory = async (p) => {
+                    if (!confirm(`📦 确认将客户 [${p.customer}] 的逾期抵押机 [${p.model}] 设为【绝当（死当）】并自动转入商品库存吗？\n\n系统将以抵押放款本金 (¥${p.loanamount}) 作为该机器的进货成本价转入“库存与串号”列表中供您直接销售。`)) return;
+
+                    const invPayload = {
+                        category: 'phone',
+                        platform: /iphone|苹果/i.test(p.model) ? 'apple' : 'android',
+                        model: p.model,
+                        imei: p.imei,
+                        buyer: p.handler || currentUser.value,
+                        indate: todayStr,
+                        cost: Number(p.loanamount) || 0,
+                        price: Number(p.loanamount) + Number(p.interest || 0),
+                        status: 'in',
+                        quantity: 1,
+                        color: '黑色',
+                        rom: '128G',
+                        region: '国行',
+                        appearance: '完美无瑕疵',
+                        screencondition: '屏幕无划痕',
+                        batteryhealth: 100,
+                        remark: `[抵押绝当转入] 原客户:${p.customer} ${p.remark || ''}`.trim(),
+                        system_operator: currentUser.value
+                    };
+
+                    const { error: invErr } = await supabaseClient.from('inventory').insert([invPayload]);
+                    if (invErr) { alert('转入库存失败: ' + invErr.message); return; }
+
+                    await supabaseClient.from('pawn_records').update({ status: 'forfeited', redeemdate: todayStr }).eq('id', p.id);
+
+                    alert(`📦 已成功将 [${p.model}] 转入在库商品列表（进货成本价：¥${p.loanamount}），您现在可以直接去库存列表销售该机器！`);
+                    await fetchCloudData();
+                };
+
+                const deletePawnItem = async (id) => {
+                    if (!confirm('确定要删除这条抵押记录吗？')) return;
+                    const { error } = await supabaseClient.from('pawn_records').delete().eq('id', id);
+                    if (error) alert('删除失败: ' + error.message);
+                    else await fetchCloudData();
+                };
+
                 // ================= ✨ 智能一句话解析自动填入逻辑 (完整版) =================
                 const smartInputText = ref('');
                 const smartParseSummary = ref('');
@@ -1479,7 +1895,6 @@
 
                     const recognized = [];
 
-                    // 1. 提取15位IMEI串号
                     const imeiMatch = text.match(/\b(\d{15})\b/);
                     if (imeiMatch) {
                         if (entryType.value === 'phone') newPhone.value.imei = imeiMatch[1];
@@ -1488,7 +1903,6 @@
                         text = text.replace(imeiMatch[0], ' ');
                     }
 
-                    // 2. 提取数量 (如：3台、5个、2件)
                     const qtyMatch = text.match(/(\d+)\s*(?:台|个|件|部|条|张|套)/);
                     if (qtyMatch) {
                         const q = Number(qtyMatch[1]);
@@ -1502,7 +1916,6 @@
                         }
                     }
 
-                    // 3. 提取进货价与零售价
                     const costMatch = text.match(/(?:进货价|进价|成本价|成本|回收价|收|进)\s*[:：]?\s*(\d+(?:\.\d+)?)/);
                     if (costMatch) {
                         const c = Number(costMatch[1]);
@@ -1525,7 +1938,6 @@
                         text = text.replace(priceMatch[0], ' ');
                     }
 
-                    // 4. 针对【手机】的专项智能解析
                     if (entryType.value === 'phone') {
                         if (/(?:iphone|iphona|iphon|iphoe|ipone|ihpone|iphne|苹果)/i.test(text)) {
                             newPhone.value.platform = 'apple';
@@ -1535,7 +1947,6 @@
                             text = text.replace(/安卓/g, ' ');
                         }
 
-                        // 提取地区/版本
                         const regions = ['国行', '美版', '泰版', '欧版', '日版', '韩版', '亚太版', '其他版本'];
                         for (const r of regions) {
                             if (text.includes(r)) {
@@ -1546,7 +1957,6 @@
                             }
                         }
 
-                        // 提取电池效率
                         const batMatch = text.match(/(?:电池效率|电池健康|电池|效率)\s*[:：]?\s*(\d{2,3})\s*%?/) || text.match(/\b(\d{2,3})%/);
                         if (batMatch) {
                             const bh = Number(batMatch[1]);
@@ -1557,7 +1967,6 @@
                             }
                         }
 
-                        // 提取内存容量
                         const ramRomMatch = text.match(/\b(4|6|8|12|16|24)\s*[gG]?\s*[+\/]\s*(64|128|256|512|1024)\s*[gG]?|\b(4|6|8|12|16|24)\s*[gG]?\s*[+\/]\s*(1)\s*[tT]/i);
                         if (ramRomMatch) {
                             const ramVal = (ramRomMatch[1] || ramRomMatch[3]) + 'G';
@@ -1577,7 +1986,6 @@
                             }
                         }
 
-                        // 提取机身外观
                         const appRules = [
                             { keys: ['完美无瑕疵', '外观完美', '完美', '极品', '充新'], val: '完美无瑕疵' },
                             { keys: ['小划痕/掉漆', '轻微划痕', '小划痕', '掉漆', '微瑕'], val: '小划痕/掉漆' },
@@ -1594,7 +2002,6 @@
                             }
                         }
 
-                        // 提取屏幕成色
                         const scrRules = [
                             { keys: ['有漏液或者横线', '漏液', '横线', '绿线', '黑斑', '花屏'], val: '有漏液或者横线' },
                             { keys: ['无法点亮', '不亮', '黑屏'], val: '无法点亮' },
@@ -1612,7 +2019,6 @@
                             }
                         }
 
-                        // 提取电池弹窗状态
                         const batPopupRules = [
                             { keys: ['电池维修', '维修电池', '维护电池', '维修'], has: '维修', type: '维修' },
                             { keys: ['电池正品', '正品电池'], has: '正品', type: '正品' },
@@ -1629,7 +2035,6 @@
                             }
                         }
 
-                        // 提取屏幕弹窗状态
                         const scrPopupRules = [
                             { keys: ['弹窗国屏'], has: '有', type: '弹窗国屏' },
                             { keys: ['国产屏幕', '国产屏', '国屏'], has: '有', type: newPhone.value.platform === 'apple' ? '国产屏' : '国产屏幕' },
@@ -1646,7 +2051,6 @@
                             }
                         }
 
-                        // 🎨 提取机身颜色（7种指定颜色：粉色、白色、原色、黑色、蓝色、金色、绿色）
                         const colorRules = [
                             { keys: ['粉色', '粉'], val: '粉色' },
                             { keys: ['白色', '白'], val: '白色' },
@@ -1676,7 +2080,6 @@
                             }
                         }
 
-                        // 提取手机型号
                         const iphoneModelRegex = /(?:iphone|iphona|iphon|iphoe|ipone|ihpone|iphne)\s*(\d{1,2}|x|xs|xr|se)\s*(pro\s*max|pro|plus|mini|max|s)?/i;
                         const ipMatch = text.match(iphoneModelRegex);
                         if (ipMatch) {
@@ -1720,7 +2123,6 @@
                         }
                     }
 
-                    // 5. 针对【电脑】的专项智能解析
                     else if (entryType.value === 'computer') {
                         const cpuMatch = text.match(/\b(i[3579]-\d{4,5}[a-zA-Z]*|r[579]-\d{4}[a-zA-Z]*|m[1234](?:\s*pro|\s*max)?|i[3579]|酷睿\S+|锐龙\S+)\b/i);
                         if (cpuMatch) {
@@ -1754,7 +2156,6 @@
                         }
                     }
 
-                    // 6. 针对【配件 / 报废机】的专项智能解析
                     else {
                         const tokens = text.trim().split(/\s+/).filter(Boolean);
                         if (tokens.length > 0) {
@@ -1786,6 +2187,7 @@
                     newComputer.value.buyer = u;
                     newAccessory.value.buyer = u;
                     newScrap.value.buyer = u;
+                    newPawn.value.handler = u;
                     saleForm.value.seller = u;
                     batchForm.value.seller = u;
                 };
@@ -1821,6 +2223,16 @@
                                 actualprice: s.actualprice ?? s.actualPrice ?? 0
                             }));
                         }
+
+                        // 拉取抵押表数据
+                        const { data: pawnData, error: pawnErr } = await supabaseClient
+                            .from('pawn_records')
+                            .select('*')
+                            .order('id', { ascending: false });
+                        if (!pawnErr && pawnData) {
+                            pawnList.value = pawnData;
+                        }
+
                         if (showTip) alert('已成功从云端同步最新数据！');
                     } catch (e) {
                         console.error('同步异常:', e);
@@ -1834,6 +2246,7 @@
                         .channel('db-sync-channel')
                         .on('postgres_changes', { event: '*', schema: 'public', table: 'inventory' }, () => fetchCloudData())
                         .on('postgres_changes', { event: '*', schema: 'public', table: 'sales_history' }, () => fetchCloudData())
+                        .on('postgres_changes', { event: '*', schema: 'public', table: 'pawn_records' }, () => fetchCloudData())
                         .on('postgres_changes', { event: '*', schema: 'public', table: 'system_users' }, () => fetchSystemUsers())
                         .subscribe();
                 };
@@ -1927,7 +2340,7 @@
                     }, 0);
                 });
 
-                // ================= 5. 📷 真正修复的 ZXing 摄像头扫码逻辑 =================
+                // ================= 5. 📷 ZXing 摄像头扫码逻辑 (支持入库/出库/抵押扫码) =================
                 const isScanning = ref(false);
                 const scanMode = ref('inboundPhone');
                 const videoDevices = ref([]);
@@ -1943,6 +2356,9 @@
                     } else if (scanMode.value === 'inboundComputer') {
                         newComputer.value.imei = text;
                         alert('💻 电脑SN码扫描成功：' + text);
+                    } else if (scanMode.value === 'inboundPawn') {
+                        newPawn.value.imei = text;
+                        alert('🏦 抵押机器串号扫描成功：' + text);
                     } else {
                         newPhone.value.imei = text;
                         alert('📱 手机串号扫描成功：' + text);
@@ -1993,7 +2409,6 @@
                 const startDecodeWithDevice = (deviceId) => {
                     if (!codeReader) codeReader = new ZXing.BrowserBarcodeReader();
                     codeReader.reset();
-                    // 传入 undefined 时，ZXing 会默认请求 environment (手机后置主摄)
                     codeReader.decodeFromVideoDevice(deviceId, 'scanner-video', (result, err) => {
                         if (result) {
                             onScanSuccess(result.text);
@@ -2007,10 +2422,8 @@
                     await nextTick();
                     try {
                         codeReader = new ZXing.BrowserBarcodeReader();
-                        // 直接传 undefined 先唤起浏览器默认后置摄像头权限并开始解码（最稳健，不挑设备ID）
                         startDecodeWithDevice(undefined);
 
-                        // 异步加载设备列表以便支持“切换镜头”按钮
                         codeReader.listVideoInputDevices().then(devices => {
                             videoDevices.value = devices || [];
                             if (devices && devices.length > 1) {
@@ -2027,281 +2440,4 @@
                     if (videoDevices.value.length <= 1) return;
                     currentCameraIndex.value = (currentCameraIndex.value + 1) % videoDevices.value.length;
                     const nextDeviceId = videoDevices.value[currentCameraIndex.value]?.deviceId;
-                    startDecodeWithDevice(nextDeviceId);
-                };
-
-                // 保底方案：调用系统原生相机拍照或选图识别条码（不受任何HTTP或浏览器视频流限制）
-                const handleImageScan = async (event) => {
-                    const file = event.target.files?.[0];
-                    if (!file) return;
-                    const imgUrl = URL.createObjectURL(file);
-                    try {
-                        const reader = new ZXing.BrowserBarcodeReader();
-                        const result = await reader.decodeFromImageUrl(imgUrl);
-                        URL.revokeObjectURL(imgUrl);
-                        if (result && result.text) {
-                            onScanSuccess(result.text);
-                        }
-                    } catch (e) {
-                        URL.revokeObjectURL(imgUrl);
-                        alert('未能从照片中识别出清晰的条形码，请尽量对焦条形码正上方重拍，或手动输入！');
-                    }
-                    event.target.value = '';
-                };
-
-                const stopScan = () => {
-                    if (codeReader) {
-                        try { codeReader.reset(); } catch (e) {}
-                        codeReader = null;
-                    }
-                    isScanning.value = false;
-                };
-
-                // ================= 6. 入库、删除与销售开单 =================
-                const addItem = async () => {
-                    let payload = { status: 'in', system_operator: currentUser.value };
-
-                    if (entryType.value === 'phone') {
-                        if (!newPhone.value.model || !newPhone.value.imei || newPhone.value.cost === '') {
-                            alert('请完整填写手机型号、串号IMEI和进货成本价！'); return;
-                        }
-                        if (newPhone.value.platform === 'apple') {
-                            newPhone.value.model = normalizeAppleModelName(newPhone.value.model);
-                        }
-                        payload = { ...payload, ...newPhone.value, category: 'phone', quantity: Math.max(1, Number(newPhone.value.quantity) || 1) };
-                    } else if (entryType.value === 'computer') {
-                        if (!newComputer.value.model || newComputer.value.cost === '') {
-                            alert('请完整填写电脑型号和进货成本价！'); return;
-                        }
-                        payload = { ...payload, ...newComputer.value, category: 'computer', quantity: Math.max(1, Number(newComputer.value.quantity) || 1) };
-                    } else if (entryType.value === 'accessory') {
-                        if (!newAccessory.value.model || !newAccessory.value.quantity || newAccessory.value.cost === '') {
-                            alert('请完整填写配件名称、入库数量和单个成本价！'); return;
-                        }
-                        payload = { ...payload, ...newAccessory.value, category: 'accessory', imei: '配件批次', quantity: Math.max(1, Number(newAccessory.value.quantity) || 1) };
-                    } else if (entryType.value === 'scrap') {
-                        if (!newScrap.value.model || !newScrap.value.quantity || newScrap.value.cost === '') {
-                            alert('请完整填写报废机型号、回收数量和单台成本价！'); return;
-                        }
-                        payload = { ...payload, ...newScrap.value, category: 'scrap', imei: '报废机批次', quantity: Math.max(1, Number(newScrap.value.quantity) || 1) };
-                    }
-
-                    payload.buyer = (payload.buyer || currentUser.value).trim();
-                    payload.remark = (payload.remark || '').trim();
-                    payload.cost = Number(payload.cost) || 0;
-                    payload.price = Number(payload.price) || 0;
-
-                    const { error } = await supabaseClient.from('inventory').insert([payload]);
-                    if (error) {
-                        alert('云端入库保存失败: ' + error.message);
-                    } else {
-                        alert(`入库成功！\n商品型号: [${payload.model}] (数量: ${payload.quantity})\n收购人: [${payload.buyer}] | 入库系统账号: [${payload.system_operator}]`);
-                        await fetchCloudData();
-                        smartInputText.value = '';
-                        smartParseSummary.value = '';
-                        if (entryType.value === 'phone') { newPhone.value.model = ''; newPhone.value.imei = ''; newPhone.value.quantity = 1; newPhone.value.remark = ''; newPhone.value.cost = ''; newPhone.value.price = ''; }
-                        else if (entryType.value === 'computer') { newComputer.value.model = ''; newComputer.value.cpu = ''; newComputer.value.specs = ''; newComputer.value.quantity = 1; newComputer.value.imei = ''; newComputer.value.remark = ''; newComputer.value.cost = ''; newComputer.value.price = ''; }
-                        else if (entryType.value === 'accessory') { newAccessory.value.model = ''; newAccessory.value.remark = ''; newAccessory.value.cost = ''; newAccessory.value.price = ''; }
-                        else if (entryType.value === 'scrap') { newScrap.value.model = ''; newScrap.value.quantity = 1; newScrap.value.remark = ''; newScrap.value.cost = ''; newScrap.value.price = ''; }
-                    }
-                };
-
-                const deleteItem = async (id) => {
-                    if (!confirm('确定要从云端彻底删除这条库存记录吗？')) return;
-                    const { error } = await supabaseClient.from('inventory').delete().eq('id', id);
-                    if (error) alert('删除失败: ' + error.message);
-                    else fetchCloudData();
-                };
-
-                const goToSell = (item) => {
-                    selectedItem.value = item;
-                    saleForm.value = {
-                        customer: '',
-                        seller: currentUser.value,
-                        actualprice: item.price || item.cost || '',
-                        accessoriescost: 0,
-                        salequantity: 1,
-                        date: todayStr
-                    };
-                    currentTab.value = 'sales';
-                };
-
-                const confirmSale = async () => {
-                    if (!selectedItem.value) return;
-                    if (!saleForm.value.seller || !saleForm.value.seller.trim()) {
-                        alert('经办销售人为必填项，请填写销售人姓名！'); return;
-                    }
-                    if (saleForm.value.actualprice === '' || saleForm.value.actualprice === null) {
-                        alert('请输入实际成交总价！'); return;
-                    }
-                    if (!saleForm.value.date) {
-                        alert('请选择出库日期！'); return;
-                    }
-
-                    const sellQty = Number(saleForm.value.salequantity) || 1;
-                    const currentQty = Number(selectedItem.value.quantity) || 1;
-                    if (sellQty > currentQty) {
-                        alert(`售出数量 (${sellQty}) 不能超过当前在库余量 (${currentQty})！`); return;
-                    }
-
-                    const profit = liveCalculatedProfit.value;
-                    const saleRecord = {
-                        inventory_id: selectedItem.value.id,
-                        model: selectedItem.value.model,
-                        imei: selectedItem.value.imei || '',
-                        customer: saleForm.value.customer || '散客',
-                        seller: saleForm.value.seller.trim(),
-                        system_operator: currentUser.value,
-                        actualprice: Number(saleForm.value.actualprice),
-                        accessoriescost: Number(saleForm.value.accessoriescost) || 0,
-                        salequantity: sellQty,
-                        profit: profit,
-                        date: saleForm.value.date
-                    };
-
-                    const { error: saleErr } = await supabaseClient.from('sales_history').insert([saleRecord]);
-                    if (saleErr) { alert('保存销售流水失败: ' + saleErr.message); return; }
-
-                    const remainQty = currentQty - sellQty;
-                    const updateData = remainQty > 0 ? { quantity: remainQty } : { quantity: 0, status: 'sold' };
-
-                    const { error: invErr } = await supabaseClient.from('inventory').update(updateData).eq('id', selectedItem.value.id);
-                    if (invErr) { alert('更新库存状态失败: ' + invErr.message); return; }
-
-                    alert(`开单成功！\n经办销售人: [${saleRecord.seller}]\n本单毛利润: [+¥${profit}]\n出库时间: [${saleRecord.date}]`);
-                    selectedItem.value = null;
-                    await fetchCloudData();
-                    currentTab.value = 'inventory';
-                };
-
-                const openBatchModal = () => {
-                    batchForm.value.seller = currentUser.value;
-                    batchForm.value.customer = '';
-                    batchForm.value.date = todayStr;
-                    showBatchModal.value = true;
-                };
-
-                const confirmBatchSell = async () => {
-                    if (!batchForm.value.seller || !batchForm.value.seller.trim()) {
-                        alert('经办销售人为必填项，请输入销售人姓名！'); return;
-                    }
-                    if (!batchForm.value.date) {
-                        alert('请选择批量出库日期！'); return;
-                    }
-
-                    const items = selectedInventoryItems.value;
-                    for (const item of items) {
-                        if (item.batchActualPrice === '' || item.batchActualPrice === null || item.batchActualPrice === undefined) {
-                            alert(`请填写商品 [${item.model}] 的实际售价！`); return;
-                        }
-                    }
-
-                    for (const item of items) {
-                        const qty = Number(item.quantity || 1);
-                        const actualP = Number(item.batchActualPrice);
-                        const profit = actualP - Number(item.cost) * qty;
-
-                        await supabaseClient.from('sales_history').insert([{
-                            inventory_id: item.id,
-                            model: item.model,
-                            imei: item.imei || '',
-                            customer: batchForm.value.customer || '散客',
-                            seller: batchForm.value.seller.trim(),
-                            system_operator: currentUser.value,
-                            actualprice: actualP,
-                            accessoriescost: 0,
-                            salequantity: qty,
-                            profit: profit,
-                            date: batchForm.value.date
-                        }]);
-
-                        await supabaseClient.from('inventory').update({ status: 'sold', quantity: 0 }).eq('id', item.id);
-                    }
-
-                    showBatchModal.value = false;
-                    alert(`批量出库成功！共出库 ${items.length} 项商品，总毛利 +¥${batchTotalProfit.value}`);
-                    await fetchCloudData();
-                };
-
-                // ================= 7. 列表分组与每日/每月利润统计汇总 =================
-                const groupedInventory = computed(() => {
-                    const q = searchQuery.value.toLowerCase();
-                    const filtered = inventory.value.filter(item => {
-                        if (statusFilter.value !== 'all' && item.status !== statusFilter.value) return false;
-                        if (categoryFilter.value !== 'all' && item.category !== categoryFilter.value) return false;
-                        const matchModel = (item.model || '').toLowerCase().includes(q);
-                        const matchColor = (item.color || '').toLowerCase().includes(q);
-                        const matchImei = (item.imei || '').toLowerCase().includes(q);
-                        const matchBuyer = (item.buyer || '').toLowerCase().includes(q);
-                        const matchRemark = (item.remark || '').toLowerCase().includes(q);
-                        return matchModel || matchColor || matchImei || matchBuyer || matchRemark;
-                    });
-
-                    const groups = {};
-                    filtered.forEach(item => {
-                        const m = item.indate ? item.indate.slice(0, 7) : '其他日期';
-                        if (!groups[m]) groups[m] = [];
-                        groups[m].push(item);
-                    });
-
-                    return Object.keys(groups).sort().reverse().map(month => ({ month, items: groups[month] }));
-                });
-
-                const totalSalesAmount = computed(() => salesHistory.value.reduce((s, i) => s + Number(i.actualprice || 0) + Number(i.accessoriescost || 0), 0));
-                const totalProfit = computed(() => salesHistory.value.reduce((s, i) => s + Number(i.profit || 0), 0));
-
-                const selectedDayOrders = computed(() => salesHistory.value.filter(o => o.date === selectedStatDate.value));
-                const selectedDayCount = computed(() => selectedDayOrders.value.length);
-                const selectedDaySales = computed(() => selectedDayOrders.value.reduce((s, i) => s + Number(i.actualprice || 0) + Number(i.accessoriescost || 0), 0));
-                const selectedDayProfit = computed(() => selectedDayOrders.value.reduce((s, i) => s + Number(i.profit || 0), 0));
-
-                const groupedDailySales = computed(() => {
-                    const groups = {};
-                    salesHistory.value.forEach(order => {
-                        const d = order.date || '未知日期';
-                        if (!groups[d]) groups[d] = [];
-                        groups[d].push(order);
-                    });
-                    return Object.keys(groups).sort().reverse().map(day => {
-                        const items = groups[day];
-                        const totalSales = items.reduce((s, i) => s + Number(i.actualprice || 0) + Number(i.accessoriescost || 0), 0);
-                        const totalProfit = items.reduce((s, i) => s + Number(i.profit || 0), 0);
-                        return { day, items, totalSales, totalProfit };
-                    });
-                });
-
-                const groupedSales = computed(() => {
-                    const groups = {};
-                    salesHistory.value.forEach(order => {
-                        const m = order.date ? order.date.slice(0, 7) : '其他日期';
-                        if (!groups[m]) groups[m] = [];
-                        groups[m].push(order);
-                    });
-                    return Object.keys(groups).sort().reverse().map(month => {
-                        const items = groups[month];
-                        const totalSales = items.reduce((s, i) => s + Number(i.actualprice || 0) + Number(i.accessoriescost || 0), 0);
-                        const totalProfit = items.reduce((s, i) => s + Number(i.profit || 0), 0);
-                        return { month, items, totalSales, totalProfit };
-                    });
-                });
-
-                return {
-                    isLoggedIn, currentUser, authMode, loginForm, registerForm, handleLogin, handleRegister, handleLogout,
-                    systemUserList, isCurrentAdmin, toggleUserAdmin, deleteSystemUser, clearAllSalesHistory, clearSingleSaleRecord, deleteSaleOrderById,
-                    currentTab, detailSubTab, statsViewMode, searchQuery, statusFilter, categoryFilter, entryType, currentTime, todayStr, warningDays,
-                    inventory, salesHistory, fetchCloudData, getCategoryName, getDays, getSaleInfo, overdueCount, selectedCount,
-                    phoneInventory, computerInventory, accessoryInventory, scrapInventory,
-                    phoneTotalQty, computerTotalQty, accessoryTotalQty, scrapTotalQty, totalInStockCount, currentDetailList,
-                    newPhone, onBatteryPopupChange, newComputer, newAccessory, newScrap,
-                    smartInputText, smartParseSummary, parseSmartInput,
-                    isScanning, scanMode, videoDevices, currentCameraIndex, startScan, switchCamera, handleImageScan, stopScan, manualOutboundImei, matchAndGoToSell, addItem, deleteItem,
-                    groupedInventory, selectedItem, saleForm, liveCalculatedProfit, goToSell, confirmSale,
-                    showBatchModal, batchForm, selectedInventoryItems, batchTotalSales, batchTotalProfit, openBatchModal, confirmBatchSell,
-                    totalSalesAmount, totalProfit,
-                    selectedStatDate, selectedDayCount, selectedDaySales, selectedDayProfit, groupedDailySales, groupedSales
-                };
-            }
-        }).mount('#app');
-    </script>
-</body>
-</html>
+                    startDecodeWithDevice(nextDevice
