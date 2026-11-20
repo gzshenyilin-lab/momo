@@ -567,15 +567,26 @@
                     <button @click="addItem" class="w-full bg-blue-600 text-white py-2.5 rounded-lg font-medium hover:bg-blue-700 transition">确认入库并同步云端</button>
                 </div>
 
-                <!-- 库存流水总表 -->
+                <!-- 库存流水总表 (新增：库存周转预计看板与单机预计倒计时) -->
                 <div class="bg-white p-4 rounded-xl shadow-sm space-y-6">
                     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                        <div>
-                            <h2 class="font-bold">📋 库存与销售明细流水 (支持直接改位置 & 编辑修改)</h2>
-                            <p class="text-xs text-gray-500 mt-0.5">
-                                当前筛选在库：<strong class="text-blue-600">{{ filteredInStockQty }}</strong> 件/台 ｜ 
-                                筛选在库总成本：<strong class="text-red-600 text-sm">฿{{ filteredInStockCost.toLocaleString() }}</strong>
-                            </p>
+                        <div class="space-y-1">
+                            <h2 class="font-bold">📋 库存与销售明细流水 (含库存周转预计)</h2>
+                            <div class="flex flex-wrap items-center gap-2 text-xs text-gray-500">
+                                <span>当前筛选在库：<strong class="text-blue-600">{{ filteredInStockQty }}</strong> 件/台</span>
+                                <span>｜</span>
+                                <span>筛选总成本：<strong class="text-red-600">฿{{ filteredInStockCost.toLocaleString() }}</strong></span>
+                                <span>｜</span>
+                                <span class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded font-medium">
+                                    ⏱️ 平均库龄: <strong>{{ avgTurnoverDays }} 天</strong> (预警周期: {{ warningDays }} 天)
+                                </span>
+                                <span v-if="nearOverdueCount > 0" class="bg-amber-50 text-amber-700 border border-amber-200 px-2 py-0.5 rounded font-bold">
+                                    ⏳ 临期(≤5天): {{ nearOverdueCount }} 项
+                                </span>
+                                <span v-if="overdueCount > 0" class="bg-red-50 text-red-600 border border-red-200 px-2 py-0.5 rounded font-bold">
+                                    ⚠️ 已超期: {{ overdueCount }} 项
+                                </span>
+                            </div>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
                             <button @click="startScan('outbound')" class="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-xs sm:text-sm font-bold flex items-center gap-1 shadow-sm">📷 扫码出库</button>
@@ -594,6 +605,7 @@
                             <select v-model="statusFilter" class="border p-1.5 text-xs sm:text-sm rounded-lg bg-white">
                                 <option value="all">全部状态</option>
                                 <option value="in">仅看在库</option>
+                                <option value="warning">⚠️ 仅看超期/临期预警</option>
                                 <option value="sold">仅看已售</option>
                             </select>
                             <input v-model="searchQuery" type="text" placeholder="搜索型号/颜色/串号/位置..." class="border p-1.5 text-xs sm:text-sm rounded-lg w-44">
@@ -617,7 +629,7 @@
                                         <th class="p-2">选</th>
                                         <th class="p-2">类型/型号/位置(可直接改)与质检</th>
                                         <th class="p-2">完整串号 / 余量</th>
-                                        <th class="p-2">收购人 / 账号</th>
+                                        <th class="p-2">收购人 / 库存周转预计</th>
                                         <th class="p-2">成本 / 同行 / 零售</th>
                                         <th class="p-2">状态与流水</th>
                                         <th class="p-2">操作</th>
@@ -641,7 +653,6 @@
                                                     <option v-for="loc in locationOptions" :key="loc" :value="loc">📍 {{ loc }}</option>
                                                     <option v-if="item.location && !locationOptions.includes(item.location)" :value="item.location">📍 {{ item.location }}</option>
                                                 </select>
-                                                <span v-if="item.status === 'in' && getDays(item.indate) >= warningDays" class="bg-red-100 text-red-600 px-1.5 py-0.5 rounded text-[10px] font-bold animate-pulse">⚠️ 超期{{ getDays(item.indate) }}天</span>
                                             </div>
                                             <div class="text-xs text-gray-500 space-y-1 mt-1">
                                                 <div>
@@ -666,10 +677,23 @@
                                             <div v-if="hasValidImei(item.imei)" class="text-gray-800 font-bold">{{ item.imei }}</div>
                                             <div v-if="item.status === 'in'"><span class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded font-bold text-[11px]">余量: {{ item.quantity || 1 }}</span></div>
                                         </td>
-                                        <td class="p-2 text-xs text-gray-500 space-y-0.5">
-                                            <div>收购: <strong class="text-gray-800">{{ item.buyer || '未填' }}</strong></div>
-                                            <div class="text-[11px] text-blue-600">账号: <strong>{{ item.system_operator || '系统' }}</strong></div>
-                                            <div>{{ item.indate }}</div>
+                                        <!-- 库存周转预计列 -->
+                                        <td class="p-2 text-xs text-gray-500 space-y-1">
+                                            <div>收购: <strong class="text-gray-800">{{ item.buyer || '未填' }}</strong> ({{ item.indate }})</div>
+                                            <div v-if="item.status === 'in'">
+                                                <span v-if="getDays(item.indate) >= warningDays" class="bg-red-100 text-red-700 border border-red-200 px-1.5 py-0.5 rounded text-[11px] font-bold inline-block animate-pulse">
+                                                    ⚠️ 已在库{{ getDays(item.indate) }}天 · 超期{{ getDays(item.indate) - warningDays }}天
+                                                </span>
+                                                <span v-else-if="(warningDays - getDays(item.indate)) <= 5" class="bg-amber-100 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded text-[11px] font-bold inline-block">
+                                                    ⏳ 已在库{{ getDays(item.indate) }}天 · 剩{{ warningDays - getDays(item.indate) }}天超期
+                                                </span>
+                                                <span v-else class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-1.5 py-0.5 rounded text-[11px] font-medium inline-block">
+                                                    ⏱️ 在库{{ getDays(item.indate) }}天 · 预计余{{ warningDays - getDays(item.indate) }}天
+                                                </span>
+                                            </div>
+                                            <div v-else class="text-[11px] text-gray-400">
+                                                周转周期: {{ getSoldTurnoverDays(item) }} 天售出
+                                            </div>
                                         </td>
                                         <td class="p-2 text-xs space-y-0.5">
                                             <div class="font-medium text-gray-800">成本: ฿{{ item.cost }}</div>
@@ -804,7 +828,7 @@
                                     <th class="p-2">型号 / 颜色 / 位置</th>
                                     <th class="p-2">完整串号 / 余量</th>
                                     <th class="p-2">详细质检配置与备注</th>
-                                    <th class="p-2">收购人 / 日期</th>
+                                    <th class="p-2">收购人 / 库龄</th>
                                     <th class="p-2">成本 / 同行 / 零售</th>
                                     <th class="p-2">操作</th>
                                 </tr>
@@ -841,7 +865,7 @@
                                     </td>
                                     <td class="p-2 text-xs text-gray-500">
                                         <div>{{ item.buyer }}</div>
-                                        <div>{{ item.indate }} ({{ getDays(item.indate) }}天)</div>
+                                        <div>{{ item.indate }} (在库{{ getDays(item.indate) }}天)</div>
                                     </td>
                                     <td class="p-2 text-xs space-y-0.5">
                                         <div>成本: <strong>฿{{ item.cost }}</strong></div>
@@ -1162,104 +1186,108 @@
                 </div>
             </div>
 
-            <!-- ================= TAB 5: ⚙️ 系统设置 (自定义颜色 & 内存词条管理) ================= -->
+            <!-- ================= TAB 5: ⚙️ 系统设置 (全项仅限管理员修改) ================= -->
             <div v-if="currentTab === 'settings'" class="bg-white p-6 rounded-xl shadow-sm space-y-6 max-w-2xl mx-auto">
-                <h2 class="font-bold text-lg text-blue-600 border-b pb-3">⚙️ 系统设置与管理中心</h2>
+                <div class="flex justify-between items-center border-b pb-3">
+                    <h2 class="font-bold text-lg text-blue-600">⚙️ 系统设置与管理中心</h2>
+                    <span v-if="isCurrentAdmin" class="bg-green-100 text-green-700 text-xs px-2.5 py-1 rounded-full font-bold">👑 管理员已解锁全部设置</span>
+                    <span v-else class="bg-red-100 text-red-600 text-xs px-2.5 py-1 rounded-full font-bold">🔒 只读模式（仅管理员可修改）</span>
+                </div>
 
-                <!-- 1. 自定义手机颜色词条管理 -->
+                <!-- 1. 自定义手机颜色词条管理 (仅管理员可改) -->
                 <div class="p-4 bg-indigo-50/70 rounded-xl border border-indigo-200 space-y-3">
                     <div class="flex items-center justify-between">
-                        <h3 class="font-bold text-sm text-indigo-900">🎨 手机颜色词条管理 (自定义添加/删除)</h3>
+                        <h3 class="font-bold text-sm text-indigo-900">🎨 手机颜色词条管理 <span v-if="!isCurrentAdmin" class="text-xs text-red-500 ml-1">(🔒 仅限管理员)</span></h3>
                         <span class="text-xs text-indigo-700 font-medium">共 {{ colorOptions.length }} 个颜色</span>
                     </div>
                     <div class="flex gap-2">
-                        <input v-model="newColorInput" @keyup.enter="addColorTag" type="text" placeholder="输入新颜色名称，如：钛灰色 / 沙漠金 / 紫色..." class="border border-indigo-300 p-2 rounded-lg flex-1 text-sm bg-white">
-                        <button @click="addColorTag" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0">➕ 添加颜色</button>
+                        <input v-model="newColorInput" @keyup.enter="addColorTag" :disabled="!isCurrentAdmin" type="text" placeholder="输入新颜色名称，如：钛灰色 / 沙漠金..." class="border border-indigo-300 p-2 rounded-lg flex-1 text-sm bg-white disabled:bg-gray-100 disabled:cursor-not-allowed">
+                        <button @click="addColorTag" :disabled="!isCurrentAdmin" class="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">➕ 添加颜色</button>
                     </div>
                     <div class="flex flex-wrap gap-2 pt-1">
                         <span v-for="c in colorOptions" :key="c" class="bg-white border border-indigo-300 text-indigo-800 px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 shadow-sm">
                             <span>🎨 {{ c }}</span>
-                            <button @click="removeColorTag(c)" class="text-red-400 hover:text-red-600 font-bold ml-0.5" title="删除此颜色">×</button>
+                            <button v-if="isCurrentAdmin" @click="removeColorTag(c)" class="text-red-400 hover:text-red-600 font-bold ml-0.5" title="删除此颜色">×</button>
                         </span>
                     </div>
                 </div>
 
-                <!-- 2. 自定义内存 (ROM & RAM) 词条管理 -->
+                <!-- 2. 自定义内存 (ROM & RAM) 词条管理 (仅管理员可改) -->
                 <div class="p-4 bg-purple-50/70 rounded-xl border border-purple-200 space-y-4">
                     <div class="flex items-center justify-between">
-                        <h3 class="font-bold text-sm text-purple-900">💾 内存容量词条管理 (ROM机身存储 / RAM运行内存)</h3>
+                        <h3 class="font-bold text-sm text-purple-900">💾 内存容量词条管理 (ROM / RAM) <span v-if="!isCurrentAdmin" class="text-xs text-red-500 ml-1">(🔒 仅限管理员)</span></h3>
                     </div>
                     <div class="space-y-2">
                         <label class="text-xs font-bold text-purple-800 block">机身存储 (ROM) 词条：</label>
                         <div class="flex gap-2">
-                            <input v-model="newRomInput" @keyup.enter="addRomTag" type="text" placeholder="输入新机身内存，如：16G / 2T..." class="border border-purple-300 p-2 rounded-lg flex-1 text-sm bg-white">
-                            <button @click="addRomTag" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0">➕ 添加ROM</button>
+                            <input v-model="newRomInput" @keyup.enter="addRomTag" :disabled="!isCurrentAdmin" type="text" placeholder="输入新机身内存，如：16G / 2T..." class="border border-purple-300 p-2 rounded-lg flex-1 text-sm bg-white disabled:bg-gray-100 disabled:cursor-not-allowed">
+                            <button @click="addRomTag" :disabled="!isCurrentAdmin" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">➕ 添加ROM</button>
                         </div>
                         <div class="flex flex-wrap gap-2 pt-1">
                             <span v-for="r in romOptions" :key="r" class="bg-white border border-purple-300 text-purple-800 px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 shadow-sm">
                                 <span>{{ r }}</span>
-                                <button @click="removeRomTag(r)" class="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
+                                <button v-if="isCurrentAdmin" @click="removeRomTag(r)" class="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
                             </span>
                         </div>
                     </div>
                     <div class="space-y-2 border-t border-purple-200 pt-3">
                         <label class="text-xs font-bold text-purple-800 block">安卓运行内存 (RAM) 词条：</label>
                         <div class="flex gap-2">
-                            <input v-model="newRamInput" @keyup.enter="addRamTag" type="text" placeholder="输入新运行内存，如：3G / 32G..." class="border border-purple-300 p-2 rounded-lg flex-1 text-sm bg-white">
-                            <button @click="addRamTag" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0">➕ 添加RAM</button>
+                            <input v-model="newRamInput" @keyup.enter="addRamTag" :disabled="!isCurrentAdmin" type="text" placeholder="输入新运行内存，如：3G / 32G..." class="border border-purple-300 p-2 rounded-lg flex-1 text-sm bg-white disabled:bg-gray-100 disabled:cursor-not-allowed">
+                            <button @click="addRamTag" :disabled="!isCurrentAdmin" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">➕ 添加RAM</button>
                         </div>
                         <div class="flex flex-wrap gap-2 pt-1">
                             <span v-for="ram in ramOptions" :key="ram" class="bg-white border border-purple-300 text-purple-800 px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 shadow-sm">
                                 <span>{{ ram }}</span>
-                                <button @click="removeRamTag(ram)" class="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
+                                <button v-if="isCurrentAdmin" @click="removeRamTag(ram)" class="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
                             </span>
                         </div>
                     </div>
                 </div>
 
-                <!-- 3. 自定义库存位置词条管理 -->
+                <!-- 3. 自定义库存位置词条管理 (仅管理员可改) -->
                 <div class="p-4 bg-teal-50/70 rounded-xl border border-teal-200 space-y-3">
                     <div class="flex items-center justify-between">
-                        <h3 class="font-bold text-sm text-teal-900">📍 库存存放位置词条管理 (自定义添加/删除)</h3>
+                        <h3 class="font-bold text-sm text-teal-900">📍 库存存放位置词条管理 <span v-if="!isCurrentAdmin" class="text-xs text-red-500 ml-1">(🔒 仅限管理员)</span></h3>
                         <span class="text-xs text-teal-700 font-medium">共 {{ locationOptions.length }} 个位置</span>
                     </div>
                     <div class="flex gap-2">
-                        <input v-model="newLocationInput" @keyup.enter="addLocationTag" type="text" placeholder="输入新位置词条，如：曼谷 / 深圳..." class="border border-teal-300 p-2 rounded-lg flex-1 text-sm bg-white">
-                        <button @click="addLocationTag" class="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0">➕ 添加位置</button>
+                        <input v-model="newLocationInput" @keyup.enter="addLocationTag" :disabled="!isCurrentAdmin" type="text" placeholder="输入新位置词条，如：曼谷 / 深圳..." class="border border-teal-300 p-2 rounded-lg flex-1 text-sm bg-white disabled:bg-gray-100 disabled:cursor-not-allowed">
+                        <button @click="addLocationTag" :disabled="!isCurrentAdmin" class="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-xs font-bold shrink-0 disabled:opacity-50 disabled:cursor-not-allowed">➕ 添加位置</button>
                     </div>
                     <div class="flex flex-wrap gap-2 pt-1">
                         <span v-for="loc in locationOptions" :key="loc" class="bg-white border border-teal-300 text-teal-800 px-3 py-1 rounded-full text-xs font-bold inline-flex items-center gap-1.5 shadow-sm">
                             <span>📍 {{ loc }}</span>
-                            <button @click="removeLocationTag(loc)" class="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
+                            <button v-if="isCurrentAdmin" @click="removeLocationTag(loc)" class="text-red-400 hover:text-red-600 font-bold ml-0.5">×</button>
                         </span>
                     </div>
                 </div>
 
-                <!-- 4. 周转超期预警 -->
+                <!-- 4. 周转超期预警 (仅管理员可改) -->
                 <div class="p-4 bg-gray-50 rounded-xl border space-y-2">
                     <label class="block text-sm font-bold text-gray-700">
                         库存周转超期预警天数
                         <span v-if="!isCurrentAdmin" class="text-xs text-red-500 ml-2">(🔒 仅管理员可修改)</span>
                     </label>
                     <div class="flex items-center gap-3">
-                        <input v-model.number="warningDays" type="number" :disabled="!isCurrentAdmin" class="border p-2 rounded-lg w-28 text-center font-bold bg-white">
+                        <input v-model.number="warningDays" type="number" :disabled="!isCurrentAdmin" class="border p-2 rounded-lg w-28 text-center font-bold bg-white disabled:bg-gray-100 disabled:cursor-not-allowed">
                         <span class="text-xs text-gray-500">当前超期：{{ overdueCount }} 项。</span>
                     </div>
                 </div>
 
-                <!-- 5. 销售流水与利润删除管理 -->
+                <!-- 5. 销售流水与利润删除管理 (仅管理员可改) -->
                 <div class="p-4 bg-red-50/60 rounded-xl border border-red-200 space-y-3">
                     <div class="flex items-center justify-between">
                         <h3 class="font-bold text-sm text-red-700">🗑️ 销售流水与利润删除管理</h3>
                         <span v-if="!isCurrentAdmin" class="text-xs text-red-500 font-bold">🔒 仅限管理员</span>
                     </div>
                     <div class="flex flex-wrap gap-2">
-                        <button @click="clearAllSalesHistory" :disabled="!isCurrentAdmin" class="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold disabled:opacity-50">🗑️ 一键清空全部历史销售与利润 ({{ salesHistory.length }}笔)</button>
-                        <button @click="clearSingleSaleRecord" :disabled="!isCurrentAdmin || salesHistory.length === 0" class="bg-amber-600 text-white px-4 py-2 rounded-lg text-xs font-bold disabled:opacity-50">↩️ 撤销最新一笔记录</button>
+                        <button @click="clearAllSalesHistory" :disabled="!isCurrentAdmin" class="bg-red-600 text-white px-4 py-2 rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed">🗑️ 一键清空全部历史销售与利润 ({{ salesHistory.length }}笔)</button>
+                        <button @click="clearSingleSaleRecord" :disabled="!isCurrentAdmin || salesHistory.length === 0" class="bg-amber-600 text-white px-4 py-2 rounded-lg text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed">↩️ 撤销最新一笔记录</button>
                     </div>
                 </div>
 
-                <!-- 6. 用户管理中心 -->
+                <!-- 6. 用户管理中心 (仅管理员可改) -->
                 <div class="p-4 bg-blue-50/60 rounded-xl border border-blue-200 space-y-4">
                     <div class="flex justify-between items-center">
                         <h3 class="font-bold text-sm text-blue-900">👥 系统用户与管理员权限中心</h3>
@@ -1604,26 +1632,29 @@
             };
 
             const toggleUserAdmin = async (targetUser, setAdmin) => {
-                if (!isCurrentAdmin.value) return;
+                if (!isCurrentAdmin.value) { alert('仅限管理员操作！'); return; }
                 try { await supabaseClient.from('system_users').update({ is_admin: setAdmin }).eq('username', targetUser.username); } catch (e) {}
                 targetUser.is_admin = setAdmin;
             };
 
             const deleteSystemUser = async (targetUser) => {
-                if (!isCurrentAdmin.value || !confirm(`确定删除用户 [${targetUser.username}] 吗？`)) return;
+                if (!isCurrentAdmin.value) { alert('仅限管理员操作！'); return; }
+                if (!confirm(`确定删除用户 [${targetUser.username}] 吗？`)) return;
                 try { await supabaseClient.from('system_users').delete().eq('username', targetUser.username); } catch (e) {}
                 systemUserList.value = systemUserList.value.filter(u => u.username !== targetUser.username);
             };
 
             const clearAllSalesHistory = async () => {
-                if (!isCurrentAdmin.value || !confirm('⚠️ 确定彻底清空所有历史销售流水与利润？')) return;
+                if (!isCurrentAdmin.value) { alert('仅限管理员操作！'); return; }
+                if (!confirm('⚠️ 确定彻底清空所有历史销售流水与利润？')) return;
                 if (prompt('请输入管理员密码 (970906) 确认：') !== '970906') { alert('密码错误！'); return; }
                 const { error } = await supabaseClient.from('sales_history').delete().gte('id', 0);
                 if (!error) { salesHistory.value = []; alert('已清空全部历史流水与利润！'); }
             };
 
             const clearSingleSaleRecord = async () => {
-                if (!isCurrentAdmin.value || salesHistory.value.length === 0) return;
+                if (!isCurrentAdmin.value) { alert('仅限管理员操作！'); return; }
+                if (salesHistory.value.length === 0) return;
                 const lastOrder = salesHistory.value[0];
                 if (!confirm(`确定撤销最新一笔记录吗？[${lastOrder.model}]`)) return;
                 const { error } = await supabaseClient.from('sales_history').delete().eq('id', lastOrder.id);
@@ -1636,7 +1667,7 @@
                 if (!error) salesHistory.value = salesHistory.value.filter(o => o.id !== order.id);
             };
 
-            // ================= 自定义词条管理 (位置、颜色、ROM、RAM) =================
+            // ================= 自定义词条管理 (全项仅限管理员修改) =================
             const loadTags = (key, defaults) => {
                 const saved = JSON.parse(localStorage.getItem(key) || 'null');
                 return Array.isArray(saved) && saved.length > 0 ? saved : defaults;
@@ -1645,6 +1676,7 @@
             const locationOptions = ref(loadTags('phone_sys_locations', ['芭提雅', '中国']));
             const newLocationInput = ref('');
             const addLocationTag = () => {
+                if (!isCurrentAdmin.value) { alert('仅限管理员修改！'); return; }
                 const v = newLocationInput.value.trim();
                 if (!v || locationOptions.value.includes(v)) return;
                 locationOptions.value.push(v);
@@ -1652,6 +1684,7 @@
                 newLocationInput.value = '';
             };
             const removeLocationTag = (loc) => {
+                if (!isCurrentAdmin.value) { alert('仅限管理员修改！'); return; }
                 locationOptions.value = locationOptions.value.filter(i => i !== loc);
                 localStorage.setItem('phone_sys_locations', JSON.stringify(locationOptions.value));
             };
@@ -1659,6 +1692,7 @@
             const colorOptions = ref(loadTags('phone_sys_colors', ['黑色', '白色', '原色', '粉色', '蓝色', '金色', '绿色', '橙色']));
             const newColorInput = ref('');
             const addColorTag = () => {
+                if (!isCurrentAdmin.value) { alert('仅限管理员修改！'); return; }
                 const v = newColorInput.value.trim();
                 if (!v) { alert('请输入颜色名称！'); return; }
                 if (colorOptions.value.includes(v)) { alert('该颜色词条已存在！'); return; }
@@ -1667,6 +1701,7 @@
                 newColorInput.value = '';
             };
             const removeColorTag = (c) => {
+                if (!isCurrentAdmin.value) { alert('仅限管理员修改！'); return; }
                 if (colorOptions.value.length <= 1) { alert('至少保留一个颜色词条！'); return; }
                 colorOptions.value = colorOptions.value.filter(i => i !== c);
                 localStorage.setItem('phone_sys_colors', JSON.stringify(colorOptions.value));
@@ -1675,6 +1710,7 @@
             const romOptions = ref(loadTags('phone_sys_roms', ['32G', '64G', '128G', '256G', '512G', '1T']));
             const newRomInput = ref('');
             const addRomTag = () => {
+                if (!isCurrentAdmin.value) { alert('仅限管理员修改！'); return; }
                 let v = newRomInput.value.trim().toUpperCase();
                 if (!v) { alert('请输入机身内存容量！'); return; }
                 if (/^\d+$/.test(v)) v += 'G';
@@ -1684,6 +1720,7 @@
                 newRomInput.value = '';
             };
             const removeRomTag = (r) => {
+                if (!isCurrentAdmin.value) { alert('仅限管理员修改！'); return; }
                 if (romOptions.value.length <= 1) { alert('至少保留一个内存词条！'); return; }
                 romOptions.value = romOptions.value.filter(i => i !== r);
                 localStorage.setItem('phone_sys_roms', JSON.stringify(romOptions.value));
@@ -1692,6 +1729,7 @@
             const ramOptions = ref(loadTags('phone_sys_rams', ['4G', '6G', '8G', '12G', '16G', '24G']));
             const newRamInput = ref('');
             const addRamTag = () => {
+                if (!isCurrentAdmin.value) { alert('仅限管理员修改！'); return; }
                 let v = newRamInput.value.trim().toUpperCase();
                 if (!v) { alert('请输入运行内存容量！'); return; }
                 if (/^\d+$/.test(v)) v += 'G';
@@ -1701,6 +1739,7 @@
                 newRamInput.value = '';
             };
             const removeRamTag = (r) => {
+                if (!isCurrentAdmin.value) { alert('仅限管理员修改！'); return; }
                 if (ramOptions.value.length <= 1) { alert('至少保留一个运行内存词条！'); return; }
                 ramOptions.value = ramOptions.value.filter(i => i !== r);
                 localStorage.setItem('phone_sys_rams', JSON.stringify(ramOptions.value));
@@ -1730,7 +1769,10 @@
             const exportShowRetail = ref(true);
 
             const warningDays = ref(Number(localStorage.getItem('phone_warning_days')) || 30);
-            watch(warningDays, (val) => { if (isCurrentAdmin.value) localStorage.setItem('phone_warning_days', val); });
+            watch(warningDays, (val) => {
+                if (isCurrentAdmin.value) localStorage.setItem('phone_warning_days', val);
+                else warningDays.value = Number(localStorage.getItem('phone_warning_days')) || 30;
+            });
 
             const inventory = ref([]);
             const salesHistory = ref([]);
@@ -2075,8 +2117,25 @@
             const getCategoryName = (cat) => ({ phone: '手机', computer: '电脑', accessory: '配件', scrap: '报废机' })[cat] || '商品';
             const getDays = (d) => d ? Math.max(0, Math.floor((new Date() - new Date(d)) / 86400000)) : 0;
             const getSaleInfo = (id) => salesHistory.value.find(s => s.inventory_id === id) || { actualprice: 0, profit: 0, seller: '-', system_operator: '-', date: '-' };
+            const getSoldTurnoverDays = (item) => {
+                const s = getSaleInfo(item.id);
+                if (!item.indate || !s.date || s.date === '-') return '-';
+                return Math.max(0, Math.floor((new Date(s.date) - new Date(item.indate)) / 86400000));
+            };
 
             const overdueCount = computed(() => inventory.value.filter(i => i.status === 'in' && getDays(i.indate) >= warningDays.value).length);
+            const nearOverdueCount = computed(() => inventory.value.filter(i => {
+                if (i.status !== 'in') return false;
+                const rem = warningDays.value - getDays(i.indate);
+                return rem > 0 && rem <= 5;
+            }).length);
+            const avgTurnoverDays = computed(() => {
+                const inItems = inventory.value.filter(i => i.status === 'in');
+                if (!inItems.length) return 0;
+                const totalDays = inItems.reduce((s, i) => s + getDays(i.indate), 0);
+                return Math.round(totalDays / inItems.length);
+            });
+
             const selectedCount = computed(() => inventory.value.filter(i => i.status === 'in' && i.selected).length);
             const selectedInventoryItems = computed(() => inventory.value.filter(i => i.status === 'in' && i.selected));
 
@@ -2206,7 +2265,12 @@
             const filteredInventoryList = computed(() => {
                 const q = searchQuery.value.toLowerCase();
                 return inventory.value.filter(item => {
-                    if (statusFilter.value !== 'all' && item.status !== statusFilter.value) return false;
+                    if (statusFilter.value === 'warning') {
+                        if (item.status !== 'in') return false;
+                        if ((warningDays.value - getDays(item.indate)) > 5) return false;
+                    } else if (statusFilter.value !== 'all' && item.status !== statusFilter.value) {
+                        return false;
+                    }
                     if (categoryFilter.value !== 'all' && item.category !== categoryFilter.value) return false;
                     if (locationFilter.value !== 'all') {
                         if (locationFilter.value === 'unset') { if (item.location) return false; }
@@ -2269,7 +2333,8 @@
                 activePawnCount, activePawnPrincipal, activePawnExpectedInterest,
                 filteredPawnList, addPawnRecord, redeemPawnItem, forfeitPawnToInventory, deletePawnRecord,
                 currentTab, detailSubTab, statsViewMode, searchQuery, statusFilter, categoryFilter, entryType, currentTime, todayStr, warningDays,
-                inventory, salesHistory, fetchCloudData, getCategoryName, getDays, getSaleInfo, overdueCount, selectedCount,
+                inventory, salesHistory, fetchCloudData, getCategoryName, getDays, getSaleInfo, getSoldTurnoverDays,
+                overdueCount, nearOverdueCount, avgTurnoverDays, selectedCount,
                 phoneTotalQty, computerTotalQty, accessoryTotalQty, scrapTotalQty, totalInStockCount,
                 phoneTotalCost, computerTotalCost, accessoryTotalCost, scrapTotalCost, totalInStockCost,
                 filteredInStockQty, filteredInStockCost, currentDetailList,
